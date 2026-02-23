@@ -34,6 +34,7 @@ user_split_settings = {}
 user_state = {}
 user_file_data = {}
 user_thunder = {}
+user_filename = {}  # 保存你上传的原始文件名
 
 def is_admin(user_id):
     return user_id in admins
@@ -121,6 +122,7 @@ def receive_file(update, context):
         os.remove(temp)
 
         user_file_data[user_id] = lines
+        user_filename[user_id] = doc.file_name.rsplit('.', 1)[0]  # 不带后缀的原名
         user_state[user_id] = 1
         update.message.reply_text("是否需要插入雷号？回复：是 / 否")
 
@@ -151,62 +153,74 @@ def handle_text(update, context):
         if text:
             user_thunder[user_id].append(text)
             update.message.reply_text(f"已收录：{text}")
-
-        # 发完最后一个 → 立刻执行
         do_insert_and_split(user_id, update, context)
 
 # 只分包
 def do_split(user_id, update, context):
     lines = user_file_data.pop(user_id, [])
+    original_name = user_filename.pop(user_id, "output")
     if not lines:
         update.message.reply_text("❌ 无内容")
         return
 
     per = user_split_settings.get(user_id, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
-
-    for idx, part in enumerate(parts, 1):
-        fname = f"分包_{idx}.txt"
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write("\n".join(part))
-        with open(fname, "rb") as f:
-            context.bot.send_document(update.effective_chat.id, f)
-        os.remove(fname)
+    send_files_in_batch(user_id, update, context, parts, original_name, False)
 
     update.message.reply_text("✅ 分包完成！")
     user_state.pop(user_id, None)
 
-# 【正确逻辑】每个分包文件只插 1 个雷号，轮流插
+# 插雷 + 分包（每个分包只插1个雷号，轮流）
 def do_insert_and_split(user_id, update, context):
     original = user_file_data.get(user_id, [])
     thunder_list = user_thunder.get(user_id, [])
+    original_name = user_filename.get(user_id, "output")
 
     if not original or not thunder_list:
         return
 
     per = user_split_settings.get(user_id, 50)
     parts = [original[i:i+per] for i in range(0, len(original), per)]
-
     t_count = len(thunder_list)
 
+    new_parts = []
     for idx, part in enumerate(parts, 1):
-        # 轮流取雷号：第1个文件插第1个，第2个插第2个…循环
         thunder = thunder_list[(idx-1) % t_count]
-        # 每个文件只加这一行雷号
         new_part = part + [thunder]
+        new_parts.append(new_part)
 
-        fname = f"插雷分包_{idx}.txt"
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write("\n".join(new_part))
-        with open(fname, "rb") as f:
-            context.bot.send_document(update.effective_chat.id, f)
-        os.remove(fname)
+    send_files_in_batch(user_id, update, context, new_parts, original_name, True)
 
     update.message.reply_text("✅ 插雷+分包完成！每个文件插入1个雷号，轮流使用。")
 
     user_state.pop(user_id, None)
     user_file_data.pop(user_id, None)
     user_thunder.pop(user_id, None)
+    user_filename.pop(user_id, None)
+
+# 【核心：10个文件一批发送】
+def send_files_in_batch(user_id, update, context, parts, base_name, with_thunder):
+    batch = []
+    for idx, part in enumerate(parts, 1):
+        fname = f"{base_name}_{idx}.txt"
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write("\n".join(part))
+        batch.append(fname)
+
+        # 每满10个发一批
+        if len(batch) == 10:
+            media = [InputMediaDocument(open(f, 'rb')) for f in batch]
+            context.bot.send_media_group(update.effective_chat.id, media)
+            for f in batch:
+                os.remove(f)
+            batch = []
+
+    # 发剩下不足10个的
+    if batch:
+        media = [InputMediaDocument(open(f, 'rb')) for f in batch]
+        context.bot.send_media_group(update.effective_chat.id, media)
+        for f in batch:
+            os.remove(f)
 
 def main():
     updater = Updater(TOKEN, use_context=True)
