@@ -1,5 +1,27 @@
 import os
 import time
+
+# ========== 修复 Python 3.14 缺失 imghdr 模块 ==========
+class imghdr:
+    @staticmethod
+    def what(file, h=None):
+        if h is None:
+            if isinstance(file, str):
+                with open(file, 'rb') as f:
+                    h = f.read(32)
+            else:
+                loc = file.tell()
+                h = file.read(32)
+                file.seek(loc)
+        h = h[:32]
+        if not h: return None
+        if h.startswith(b'\xff\xd8\xff'): return 'jpeg'
+        elif h.startswith(b'\x89PNG\r\n\x1a\n'): return 'png'
+        elif h[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
+        return None
+    tests = []
+# ======================================================
+
 from telegram import InputMediaDocument
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
