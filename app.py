@@ -1,4 +1,4 @@
-# ========== 最终完整可用版（所有管理员功能已补全） ==========
+# ========== 终极永不掉线版 · 全功能完整 ==========
 import os
 import threading
 import time
@@ -17,14 +17,14 @@ def run_web_server():
     port = int(os.environ.get('PORT', 10000))
     app_web.run(host='0.0.0.0', port=port)
 
-# 自动保活
+# 保活
 def keep_alive():
     while True:
         try:
-            requests.get("http://127.0.0.1:10000")
+            requests.get("http://127.0.0.1:10000", timeout=5)
         except:
             pass
-        time.sleep(600)
+        time.sleep(60)
 
 # 修复 imghdr
 class imghdr:
@@ -39,7 +39,7 @@ class imghdr:
 
 # ===================== 你的信息 =====================
 TOKEN = "8511432045:AAFwRpGl3sbz3tQK4U7wD3T7LZDnkjqKsW8"
-ROOT_ADMIN = 7793291484
+ROOT_ADMIN = 7793291090
 # ====================================================
 
 admins = {ROOT_ADMIN}
@@ -127,7 +127,7 @@ def check_auth(update):
 def is_admin(user_id):
     return user_id in admins
 
-# ===================== 伤感文案 =====================
+# ===================== 文案 =====================
 def sad_text():
     texts = [
         "缘分总比刻意好",
@@ -167,7 +167,6 @@ def start(update, context):
             "尊敬的用户宝宝 发送txt文件给我 使用我哦"
         )
 
-# 查看所有用户（管理员）
 def all_users(update, context):
     uid = update.effective_user.id
     if uid != ROOT_ADMIN:
@@ -188,7 +187,6 @@ def all_users(update, context):
             msg.append(f"• {u}：{day}天")
     update.message.reply_text("\n".join(msg))
 
-# 查看自己
 def check_me(update, context):
     update.message.reply_text(get_user_expire_text(update.effective_user.id))
 
@@ -222,7 +220,6 @@ def set_split(update, context):
     except:
         update.message.reply_text("用法：/split 50")
 
-# 添加管理员
 def add_admin(update, context):
     uid = update.effective_user.id
     if uid != ROOT_ADMIN:
@@ -235,7 +232,6 @@ def add_admin(update, context):
     except:
         update.message.reply_text("用法：/addadmin 12345678")
 
-# 删除管理员
 def del_admin(update, context):
     uid = update.effective_user.id
     if uid != ROOT_ADMIN:
@@ -251,7 +247,6 @@ def del_admin(update, context):
     except:
         update.message.reply_text("用法：/deladmin 12345678")
 
-# 查看管理员列表
 def list_admin(update, context):
     if not is_admin(update.effective_user.id):
         update.message.reply_text("❌ 无权限")
@@ -261,7 +256,6 @@ def list_admin(update, context):
         msg.append(f"• {a}")
     update.message.reply_text("\n".join(msg))
 
-# 清空用户有效期
 def clear_user(update, context):
     if not is_admin(update.effective_user.id):
         update.message.reply_text("❌ 无权限")
@@ -277,7 +271,7 @@ def clear_user(update, context):
     except:
         update.message.reply_text("用法：/clearser 12345678")
 
-# ===================== 功能逻辑 =====================
+# ===================== 功能 =====================
 def receive_file(update, context):
     if not check_auth(update):
         return
@@ -370,31 +364,39 @@ def send_files_in_batch(uid, update, context, parts, base):
         for x in batch:
             os.remove(x)
 
+# ===================== 【核心：机器人自动复活】 =====================
+def run_bot():
+    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+    while True:
+        try:
+            print("✅ 机器人启动中...")
+            updater = Updater(TOKEN, use_context=True)
+            dp = updater.dispatcher
+
+            dp.add_handler(CommandHandler("start", start))
+            dp.add_handler(CommandHandler("all", all_users))
+            dp.add_handler(CommandHandler("check", check_me))
+            dp.add_handler(CommandHandler("split", set_split))
+            dp.add_handler(CommandHandler("card", create_card))
+            dp.add_handler(CommandHandler("redeem", redeem))
+            dp.add_handler(CommandHandler("addadmin", add_admin))
+            dp.add_handler(CommandHandler("deladmin", del_admin))
+            dp.add_handler(CommandHandler("listadmin", list_admin))
+            dp.add_handler(CommandHandler("clearser", clear_user))
+            dp.add_handler(MessageHandler(Filters.document, receive_file))
+            dp.add_handler(MessageHandler(Filters.text, handle_text))
+
+            updater.start_polling(drop_pending_updates=True)
+            updater.idle()
+        except Exception as e:
+            print("⚠️ 机器人断开，5秒后自动重连")
+            time.sleep(5)
+
 # ===================== 启动 =====================
 def main():
-    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
     threading.Thread(target=run_web_server, daemon=True).start()
     threading.Thread(target=keep_alive, daemon=True).start()
-
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("all", all_users))
-    dp.add_handler(CommandHandler("check", check_me))
-    dp.add_handler(CommandHandler("split", set_split))
-    dp.add_handler(CommandHandler("card", create_card))
-    dp.add_handler(CommandHandler("redeem", redeem))
-    dp.add_handler(CommandHandler("addadmin", add_admin))
-    dp.add_handler(CommandHandler("deladmin", del_admin))
-    dp.add_handler(CommandHandler("listadmin", list_admin))
-    dp.add_handler(CommandHandler("clearser", clear_user))
-    dp.add_handler(MessageHandler(Filters.document, receive_file))
-    dp.add_handler(MessageHandler(Filters.text, handle_text))
-
-    updater.start_polling()
-    updater.idle()
+    run_bot()
 
 if __name__ == "__main__":
     main()
-
