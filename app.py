@@ -39,7 +39,7 @@ class imghdr:
 
 # ===================== 你的信息 =====================
 TOKEN = "8511432045:AAFwRpGl3sbz3tQK4U7wD3T7LZDnkjqKsW8"
-ROOT_ADMIN = 7793291090
+ROOT_ADMIN = 7793291484
 # ====================================================
 
 admins = {ROOT_ADMIN}
@@ -400,3 +400,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
