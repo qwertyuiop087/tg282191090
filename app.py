@@ -1,5 +1,4 @@
 import os
-import time
 import random
 
 # ========== 修复 Python 3.11+ imghdr 缺失 ==========
@@ -52,7 +51,7 @@ def start(update, context):
         "/addadmin ID    添加管理员\n"
         "/deladmin ID    删除管理员\n"
         "/listadmin      查看管理员\n\n"
-        "使用：发送TXT → 选择是否插雷号"
+        "发送TXT → 选择是否插雷号"
     )
 
 def set_split(update, context):
@@ -151,14 +150,15 @@ def handle_text(update, context):
             update.message.reply_text("请回复：是 / 否")
 
     elif state == 2:
+        # 你每发一个，我收一个
         if text:
             user_thunder[user_id].append(text)
-            update.message.reply_text(f"已收录雷号：{text}")
+            update.message.reply_text(f"已收录：{text}")
+        
+        # 发完最后一个 → 立刻执行！
+        do_insert_and_split(user_id, update, context)
 
-            # 你连续发，我连续收
-            # 等你停 2 秒没发，我自动开始处理
-            # 这里用延时判断，不需要你发“完成”
-
+# 只分包
 def do_split(user_id, update, context):
     lines = user_file_data.pop(user_id, [])
     if not lines:
@@ -177,25 +177,25 @@ def do_split(user_id, update, context):
         os.remove(fname)
 
     update.message.reply_text("✅ 分包完成！")
+    user_state.pop(user_id, None)
 
-# 延时自动执行插雷 + 分包
-def auto_insert_after_timeout(user_id, update, context):
-    thunder_list = user_thunder.get(user_id, [])
+# 插雷 + 分包（循环使用）
+def do_insert_and_split(user_id, update, context):
     original = user_file_data.get(user_id, [])
+    thunder_list = user_thunder.get(user_id, [])
 
-    if not thunder_list or not original:
-        update.message.reply_text("❌ 数据缺失")
+    if not original or not thunder_list:
         return
-
-    update.message.reply_text(f"✅ 已收到 {len(thunder_list)} 个雷号，开始插入并分包...")
 
     new_lines = []
     t_len = len(thunder_list)
 
     for i, line in enumerate(original):
         new_lines.append(line)
+        # 循环使用雷号
         new_lines.append(thunder_list[i % t_len])
 
+    # 分包
     per = user_split_settings.get(user_id, 50)
     parts = [new_lines[i:i+per] for i in range(0, len(new_lines), per)]
 
@@ -209,7 +209,7 @@ def auto_insert_after_timeout(user_id, update, context):
 
     update.message.reply_text("✅ 插雷+分包完成！")
 
-    # 清空状态
+    # 清空所有状态
     user_state.pop(user_id, None)
     user_file_data.pop(user_id, None)
     user_thunder.pop(user_id, None)
