@@ -1,5 +1,6 @@
 import os
-import random
+from telegram import InputMediaDocument
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # ========== 修复 Python 3.11+ imghdr 缺失 ==========
 class imghdr:
@@ -21,9 +22,6 @@ class imghdr:
         return None
     tests = []
 # ======================================================
-
-from telegram import InputMediaDocument
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # ===================== 你的信息 =====================
 TOKEN = "8511432045:AAFmhhPO-pt-MkP5PeL8pnTMD9SC9xzCLIQ"
@@ -150,12 +148,11 @@ def handle_text(update, context):
             update.message.reply_text("请回复：是 / 否")
 
     elif state == 2:
-        # 你每发一个，我收一个
         if text:
             user_thunder[user_id].append(text)
             update.message.reply_text(f"已收录：{text}")
-        
-        # 发完最后一个 → 立刻执行！
+
+        # 发完最后一个 → 立刻执行
         do_insert_and_split(user_id, update, context)
 
 # 只分包
@@ -179,7 +176,7 @@ def do_split(user_id, update, context):
     update.message.reply_text("✅ 分包完成！")
     user_state.pop(user_id, None)
 
-# 插雷 + 分包（循环使用）
+# 【正确逻辑】每个分包文件只插 1 个雷号，轮流插
 def do_insert_and_split(user_id, update, context):
     original = user_file_data.get(user_id, [])
     thunder_list = user_thunder.get(user_id, [])
@@ -187,29 +184,26 @@ def do_insert_and_split(user_id, update, context):
     if not original or not thunder_list:
         return
 
-    new_lines = []
-    t_len = len(thunder_list)
-
-    for i, line in enumerate(original):
-        new_lines.append(line)
-        # 循环使用雷号
-        new_lines.append(thunder_list[i % t_len])
-
-    # 分包
     per = user_split_settings.get(user_id, 50)
-    parts = [new_lines[i:i+per] for i in range(0, len(new_lines), per)]
+    parts = [original[i:i+per] for i in range(0, len(original), per)]
+
+    t_count = len(thunder_list)
 
     for idx, part in enumerate(parts, 1):
+        # 轮流取雷号：第1个文件插第1个，第2个插第2个…循环
+        thunder = thunder_list[(idx-1) % t_count]
+        # 每个文件只加这一行雷号
+        new_part = part + [thunder]
+
         fname = f"插雷分包_{idx}.txt"
         with open(fname, "w", encoding="utf-8") as f:
-            f.write("\n".join(part))
+            f.write("\n".join(new_part))
         with open(fname, "rb") as f:
             context.bot.send_document(update.effective_chat.id, f)
         os.remove(fname)
 
-    update.message.reply_text("✅ 插雷+分包完成！")
+    update.message.reply_text("✅ 插雷+分包完成！每个文件插入1个雷号，轮流使用。")
 
-    # 清空所有状态
     user_state.pop(user_id, None)
     user_file_data.pop(user_id, None)
     user_thunder.pop(user_id, None)
