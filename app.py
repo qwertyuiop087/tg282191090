@@ -1,4 +1,4 @@
-# ========== 终极永不掉线版（解决15分钟休眠+分包正常） ==========
+# ========== 最终版·每10个文件发一次·永不掉线·全功能正常 ==========
 import os
 import threading
 import time
@@ -13,7 +13,7 @@ app = Flask(__name__)
 def index():
     return "Bot is running"
 
-# ===================== 【防 Render 15分钟休眠】 =====================
+# ===================== 防 Render 15分钟休眠 =====================
 def keep_alive():
     port = os.environ.get("PORT", 10000)
     url = f"http://127.0.0.1:{port}"
@@ -22,11 +22,11 @@ def keep_alive():
             requests.get(url, timeout=5)
         except:
             pass
-        time.sleep(60)  # 60秒自访问一次，永不休眠
+        time.sleep(60)
 
 # ===================== 你的信息 =====================
 TOKEN = "8511432045:AAFwRpGl3sbz3tQK4U7wD3T7LZDnkjqKsW8"
-ROOT_ADMIN = 7793291484
+ROOT_ADMIN = 7793291090
 # ====================================================
 
 admins = {ROOT_ADMIN}
@@ -270,7 +270,7 @@ def clear_user(update, context):
     except:
         update.message.reply_text("用法：/clearser 12345678")
 
-# ===================== 接收文件（已修复） =====================
+# ===================== 接收文件 =====================
 def receive_file(update, context):
     if not check_auth(update):
         return
@@ -336,22 +336,28 @@ def do_insert_and_split(uid, update, context):
     for i, p in enumerate(parts):
         new_parts.append(p + [thunders[i % len(thunders)]])
     send_all(uid, update, context, new_parts, name)
-    update.message.reply_text("✅ 我完成了啊sir！")
+    update.message.reply_text("✅ 我搞好了阿sir！")
     update.message.reply_text(sad_text())
 
+# ===================== 【已改：每10个发送一次】 =====================
 def send_all(uid, update, context, parts, base):
     try:
-        for i, part in enumerate(parts, 1):
-            fn = f"{base}_{i}.txt"
-            with open(fn, "w", encoding="utf-8") as f:
-                f.write("\n".join(part))
-            with open(fn, "rb") as f:
-                context.bot.send_document(update.effective_chat.id, f)
-            os.remove(fn)
+        batch_size = 10
+        for i in range(0, len(parts), batch_size):
+            batch = parts[i:i+batch_size]
+            for j, part in enumerate(batch, 1):
+                idx = i + j
+                fn = f"{base}_{idx}.txt"
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write("\n".join(part))
+                with open(fn, "rb") as f:
+                    context.bot.send_document(update.effective_chat.id, f)
+                os.remove(fn)
+            time.sleep(1)
     except:
         update.message.reply_text("❌ 发送失败")
 
-# ===================== 机器人自动复活（防卡死） =====================
+# ===================== 机器人自动复活 =====================
 def run_bot():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
     while True:
