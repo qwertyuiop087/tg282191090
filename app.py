@@ -45,7 +45,7 @@ class imghdr:
 # ==================================================
 
 # ===================== 你的信息 =====================
-TOKEN = "8511432045:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
+TOKEN = "8511432045:AAFmhhPO-pt-MkP5PeL8pnTMD9SC9xzCLIQ"
 ROOT_ADMIN = 7793291484
 # ====================================================
 
@@ -145,11 +145,10 @@ def start(update, context):
         return
     update.message.reply_text(
         "✅【TXT分包+插雷号机器人】\n\n"
-        "/split 行数(数字)    设置单包数量\n"
+        "/split 行数     设置分包行数\n"
         "/redeem 卡密    兑换使用天数\n"
         "/my             查看有效期\n\n"
-        "您好，尊敬的用户，使用请发送TXT文件"
-
+        "发送TXT → 选择是否插雷号"
     )
 
 # 兑换
@@ -327,7 +326,7 @@ def handle_text(update, context):
 
 def do_split(user_id, update, context):
     lines = user_file_data.pop(user_id, [])
-    original_name = user_filename.pop(user_id, [])
+    original_name = user_filename.pop(user_id, "output")
     if not lines:
         update.message.reply_text("❌ 无内容")
         return
@@ -384,7 +383,7 @@ def main():
     dp.add_handler(CommandHandler("split", set_split))
     dp.add_handler(CommandHandler("addadmin", add_admin))
     dp.add_handler(CommandHandler("deladmin", del_admin))
-    dp.add_handler(CommandHandler("listadmin", listadmin))
+    dp.add_handler(CommandHandler("listadmin", list_admin))  # 这里已修复
 
     # 卡密系统
     dp.add_handler(CommandHandler("redeem", redeem))
