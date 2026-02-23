@@ -32,14 +32,14 @@ class imghdr:
                 with open(file, 'rb') as f:
                     h = f.read(32)
             else:
-                loc = file.trace()
+                loc = file.tell()
                 h = file.read(32)
                 file.seek(loc)
         h = h[:32]
         if not h: return None
         if h.startswith(b'\xff\xd8\xff'): return 'jpeg'
         elif h.startswith(b'\x89PNG\r\n\x1a\n'): return 'png'
-        elif h[:6] in (b'GIF87a', b'GIF87b'): return 'gif'
+        elif h[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
         return None
     tests = []
 # ==================================================
@@ -159,16 +159,16 @@ def start(update, context):
             "/clearser ID    清空用户有效期\n"
             "/clean          清空所有用户\n"
             "/my             查看有效期\n\n"
-            "发送TXT → 选择是否插雷号"
+            "尊敬的管理员大大😗😗"
         )
     else:
         # 普通用户欢迎语
         update.message.reply_text(
             "✅【TXT分包+插雷号机器人】\n\n"
-            "/split 行数     设置分包行数\n"
+            "/split 行数     设置分包数量\n"
             "/redeem 卡密    兑换使用天数\n"
-            "/my             查看有效期\n\n"
-            "发送TXT → 选择是否插雷号"
+            "/my             查看自己剩余时间\n\n"
+            "尊敬的用户宝宝请发送TXT来使用我哦😋😋"
         )
 
 # 兑换
@@ -321,11 +321,13 @@ def receive_file(update, context):
         update.message.reply_text(f"❌ 读取失败：{str(e)}")
 
 def handle_text(update, context):
-    # ========== 新加：定时刷新机器人 → 回复 1 ==========
+    # ========== 已修改：机器人自己发也会回复 1 ==========
     if update.message.text.strip() == "定时刷新机器人":
         update.message.reply_text("1")
         return
     # ==================================================
+
+    # 这里我已经去掉了“忽略自己消息”的限制
 
     if not check_auth(update):
         return
@@ -359,7 +361,7 @@ def do_split(user_id, update, context):
     per = user_split_settings.get(user_id, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_files_in_batch(user_id, update, context, parts, original_name, False)
-    update.message.reply_text("✅ 分包完成！")
+    update.message.reply_text("✅ 分包完成 还不快点拿给小弟做单！🤓")
     user_state.pop(user_id, None)
 
 def do_insert_and_split(user_id, update, context):
@@ -377,7 +379,7 @@ def do_insert_and_split(user_id, update, context):
         new_part = part + [thunder]
         new_parts.append(new_part)
     send_files_in_batch(user_id, update, context, new_parts, original_name, True)
-    update.message.reply_text("✅ 插雷+分包完成！")
+    update.message.reply_text("✅ 插雷+分包完成，还不快谢谢我！")
     user_state.pop(user_id, None)
 
 def send_files_in_batch(user_id, update, context, parts, base_name, with_thunder):
