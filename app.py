@@ -1,8 +1,9 @@
-# ========== 解决 Render 未检测到开放端口 ==========
+# ========== 稳定运行版 ==========
 import os
 import threading
 import time
 import requests
+import random
 from flask import Flask
 
 app_web = Flask(__name__)
@@ -15,28 +16,24 @@ def run_web_server():
     port = int(os.environ.get('PORT', 10000))
     app_web.run(host='0.0.0.0', port=port)
 
-# ========== 自动保活：自己访问自己，永不休眠 ==========
+# 自动保活
 def keep_alive():
     while True:
         try:
-            requests.get("https://tg282191090.onrender.com/")
+            requests.get("http://127.0.0.1:10000")
         except:
             pass
-        time.sleep(600)  # 10分钟保活一次
+        time.sleep(600)
 
-# ========== 修复 Python 3.11+ imghdr 缺失 ==========
+# 修复 imghdr
 class imghdr:
     @staticmethod
     def what(h=None, file=None):
-        if h is None:
-            return None
+        if h is None: return None
         h = h[:32]
-        if h.startswith(b'\xff\xd8\xff'):
-            return 'jpeg'
-        elif h.startswith(b'\x89PNG\r\n\x1a\n'):
-            return 'png'
-        elif h[:6] in (b'GIF87a', b'GIF89a'):
-            return 'gif'
+        if h.startswith(b'\xff\xd8\xff'): return 'jpeg'
+        if h.startswith(b'\x89PNG\r\n\x1a\n'): return 'png'
+        if h[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
         return None
 
 # ===================== 你的信息 =====================
@@ -72,8 +69,7 @@ def is_user_valid(user_id):
     uid = str(user_id)
     if uid in user_data:
         exp = user_data[uid].get("expire")
-        if exp:
-            return time.time() < exp
+        return time.time() < exp
     return False
 
 def generate_card(days):
@@ -94,11 +90,9 @@ def redeem_card(user_id, card):
         return "❌ 卡密已使用"
     days = card_data[card]["days"]
     now = time.time()
+    new_exp = now + days*86400
     if uid in user_data:
-        old = user_data[uid].get("expire", now)
-        new_exp = max(old, now + days*86400)
-    else:
-        new_exp = now + days*86400
+        new_exp = max(user_data[uid]["expire"], new_exp)
     user_data[uid] = {"expire": new_exp}
     card_data[card]["used"] = True
     card_data[card]["user"] = uid
@@ -110,8 +104,7 @@ def get_user_expire_text(user_id):
     uid = str(user_id)
     if uid not in user_data:
         return "❌ 暂无有效期"
-    exp = user_data[uid]["expire"]
-    valid = time.time() < exp
+    valid = time.time() < user_data[uid]["expire"]
     return f"✅ 状态：{'正常' if valid else '已过期'}"
 
 # ===================== 权限 =====================
@@ -130,6 +123,7 @@ def is_admin(user_id):
 # ===================== 伤感文案 =====================
 def sad_text():
     texts = [
+        "缘分总比刻意好"
         "有些关系，断了好像是解脱，又好像是遗憾。",
         "后来我什么都想开了，但什么都错过了。",
         "原来太懂事的人，最不被珍惜。",
@@ -156,17 +150,16 @@ def start(update, context):
             "/clearser ID     清空用户\n"
             "/clean           清空所有用户\n"
             "/my              查看有效期\n\n"
-            "尊敬的管理员大大😗"
+            "尊敬的管理员大大 爱你一辈子"
             
         )
     else:
         update.message.reply_text(
             "✅【大晴机器人】\n\n"
-            "/split 行数      设置单包数量\n"
-            "/redeem 卡密     兑换卡密\n"
-            "/my              查看剩余有效期\n\n"
-            "尊敬的用户宝宝呀 发送给我TxT文件来使用我"
-        
+            "/split 行数      设置行数\n"
+            "/redeem 卡密     兑换\n"
+            "/my              查看有效期\n\n"
+            "尊敬的用户宝宝 发送txt文件给我使用我吧"
         )
 
 def redeem(update, context):
@@ -327,7 +320,7 @@ def do_split(uid, update, context):
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_files_in_batch(uid, update, context, parts, name)
-    update.message.reply_text("✅ 分包完成 你喜欢我嘛？！")
+    update.message.reply_text("✅ 我完成任务了哦 喵！")
     update.message.reply_text(sad_text())
     user_state.pop(uid, None)
 
@@ -343,7 +336,7 @@ def do_insert_and_split(uid, update, context):
     for i, p in enumerate(parts):
         new_parts.append(p + [thunders[i % len(thunders)]])
     send_files_in_batch(uid, update, context, new_parts, name)
-    update.message.reply_text("✅ 插雷分包完成 我的速度快吧 快夸我！")
+    update.message.reply_text("✅ 报告阿sir我的任务完成了！")
     update.message.reply_text(sad_text())
     user_state.pop(uid, None)
 
@@ -366,33 +359,43 @@ def send_files_in_batch(uid, update, context, parts, base):
         for x in batch:
             os.remove(x)
 
+# ===================== 【关键：机器人自动重启机制】 =====================
+def run_bot():
+    from telegram.ext import Updater
+    while True:
+        try:
+            print("机器人启动中...")
+            updater = Updater(TOKEN, use_context=True)
+            dp = updater.dispatcher
+
+            dp.add_handler(CommandHandler("start", start))
+            dp.add_handler(CommandHandler("split", set_split))
+            dp.add_handler(CommandHandler("addadmin", add_admin))
+            dp.add_handler(CommandHandler("deladmin", del_admin))
+            dp.add_handler(CommandHandler("listadmin", list_admin))
+            dp.add_handler(CommandHandler("redeem", redeem))
+            dp.add_handler(CommandHandler("my", my))
+            dp.add_handler(CommandHandler("card", create_card))
+            dp.add_handler(CommandHandler("listcard", list_cards))
+            dp.add_handler(CommandHandler("delcard", delete_card))
+            dp.add_handler(CommandHandler("clearser", clear_single_user))
+            dp.add_handler(CommandHandler("clean", clean_expired))
+
+            dp.add_handler(MessageHandler(Filters.document, receive_file))
+            dp.add_handler(MessageHandler(Filters.text, handle_text))
+
+            updater.start_polling(drop_pending_updates=True)
+            print("机器人运行中...")
+            updater.idle()
+        except Exception as e:
+            print("机器人断开，5秒后重连:", e)
+            time.sleep(5)
+
 # ===================== 主程序 =====================
 def main():
     threading.Thread(target=run_web_server, daemon=True).start()
     threading.Thread(target=keep_alive, daemon=True).start()
-
-    from telegram.ext import Updater
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("split", set_split))
-    dp.add_handler(CommandHandler("addadmin", add_admin))
-    dp.add_handler(CommandHandler("deladmin", del_admin))
-    dp.add_handler(CommandHandler("listadmin", list_admin))
-    dp.add_handler(CommandHandler("redeem", redeem))
-    dp.add_handler(CommandHandler("my", my))
-    dp.add_handler(CommandHandler("card", create_card))
-    dp.add_handler(CommandHandler("listcard", list_cards))
-    dp.add_handler(CommandHandler("delcard", delete_card))
-    dp.add_handler(CommandHandler("clearser", clear_single_user))
-    dp.add_handler(CommandHandler("clean", clean_expired))
-
-    dp.add_handler(MessageHandler(Filters.document, receive_file))
-    dp.add_handler(MessageHandler(Filters.text, handle_text))
-
-    updater.start_polling()
-    updater.idle()
+    run_bot()
 
 if __name__ == "__main__":
     main()
