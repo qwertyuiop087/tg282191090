@@ -1,4 +1,4 @@
-# ========== 终极永不掉线版 · 全功能完整 ==========
+# ========== 终极完整版 · 含删除卡密 · 永不掉线 ==========
 import os
 import threading
 import time
@@ -148,6 +148,8 @@ def start(update, context):
         update.message.reply_text(
             "👑【管理员后台】\n\n"
             "/all  查看所有用户\n"
+            "/listcard 查看所有卡密\n"
+            "/delcard 卡密  删除卡密\n"
             "/check 查自己\n"
             "/split  设置单包数量\n"
             "/addadmin ID    添加管理员\n"
@@ -186,6 +188,38 @@ def all_users(update, context):
             day = left // 86400
             msg.append(f"• {u}：{day}天")
     update.message.reply_text("\n".join(msg))
+
+# 查看所有卡密
+def list_card(update, context):
+    uid = update.effective_user.id
+    if uid != ROOT_ADMIN:
+        update.message.reply_text("❌ 无权限")
+        return
+    if not card_data:
+        update.message.reply_text("暂无卡密")
+        return
+    msg = ["所有卡密："]
+    for c, info in card_data.items():
+        status = "✅ 未使用" if not info["used"] else "❌ 已使用"
+        msg.append(f"• {c} ｜ {info['days']}天 ｜ {status}")
+    update.message.reply_text("\n".join(msg))
+
+# 删除卡密
+def del_card(update, context):
+    uid = update.effective_user.id
+    if uid != ROOT_ADMIN:
+        update.message.reply_text("❌ 无权限")
+        return
+    if not context.args:
+        update.message.reply_text("用法：/delcard 卡密")
+        return
+    card = context.args[0].strip().upper()
+    if card in card_data:
+        del card_data[card]
+        save_data(CARD_FILE, card_data)
+        update.message.reply_text(f"✅ 卡密 {card} 已删除")
+    else:
+        update.message.reply_text("❌ 卡密不存在")
 
 def check_me(update, context):
     update.message.reply_text(get_user_expire_text(update.effective_user.id))
@@ -321,7 +355,7 @@ def handle_text(update, context):
 
 def do_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
-    name = user_filename.pop(uid, "out")
+    name = user_filename.pop(uid, [])
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_files_in_batch(uid, update, context, parts, name)
@@ -332,7 +366,7 @@ def do_split(uid, update, context):
 def do_insert_and_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
     thunders = user_thunder.pop(uid, [])
-    name = user_filename.pop(uid, "out")
+    name = user_filename.pop(uid, [])
     if not lines or not thunders:
         return
     per = user_split_settings.get(uid, 50)
@@ -375,6 +409,8 @@ def run_bot():
 
             dp.add_handler(CommandHandler("start", start))
             dp.add_handler(CommandHandler("all", all_users))
+            dp.add_handler(CommandHandler("listcard", list_card))
+            dp.add_handler(CommandHandler("delcard", del_card))
             dp.add_handler(CommandHandler("check", check_me))
             dp.add_handler(CommandHandler("split", set_split))
             dp.add_handler(CommandHandler("card", create_card))
@@ -400,4 +436,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
