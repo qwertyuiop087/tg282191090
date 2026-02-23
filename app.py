@@ -40,7 +40,7 @@ class imghdr:
 # ======================================================
 
 # ===================== 你的信息 =====================
-TOKEN = "8511432045:AAFmhhPO-pt-MkP5PeL8pnTMD9SC9xzCLIQ"
+TOKEN = "8511432045:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
 ROOT_ADMIN = 7793291484
 # ====================================================
 
@@ -62,11 +62,11 @@ def start(update, context):
         return
     update.message.reply_text(
         "✅【TXT分包+插雷号机器人】\n\n"
-        "/split 行数     设置分包行数\n"
+        "/split 行数     设置单包数量\n"
         "/addadmin ID    添加管理员\n"
         "/deladmin ID    删除管理员\n"
         "/listadmin      查看管理员\n\n"
-        "发送TXT → 选择是否插雷号"
+        "请发送TXT 只能发送TXT "
     )
 
 def set_split(update, context):
@@ -260,3 +260,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
