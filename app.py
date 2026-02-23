@@ -1,4 +1,4 @@
-# ========== 终极完整版 · 含删除卡密 · 永不掉线 ==========
+# ========== 最终修复版 · 发包100%正常 · 全功能 ==========
 import os
 import threading
 import time
@@ -39,7 +39,7 @@ class imghdr:
 
 # ===================== 你的信息 =====================
 TOKEN = "8511432045:AAFwRpGl3sbz3tQK4U7wD3T7LZDnkjqKsW8"
-ROOT_ADMIN = 7793291484
+ROOT_ADMIN = 7793291090
 # ====================================================
 
 admins = {ROOT_ADMIN}
@@ -189,7 +189,6 @@ def all_users(update, context):
             msg.append(f"• {u}：{day}天")
     update.message.reply_text("\n".join(msg))
 
-# 查看所有卡密
 def list_card(update, context):
     uid = update.effective_user.id
     if uid != ROOT_ADMIN:
@@ -204,7 +203,6 @@ def list_card(update, context):
         msg.append(f"• {c} ｜ {info['days']}天 ｜ {status}")
     update.message.reply_text("\n".join(msg))
 
-# 删除卡密
 def del_card(update, context):
     uid = update.effective_user.id
     if uid != ROOT_ADMIN:
@@ -305,7 +303,7 @@ def clear_user(update, context):
     except:
         update.message.reply_text("用法：/clearser 12345678")
 
-# ===================== 功能 =====================
+# ===================== 核心：接收文件 =====================
 def receive_file(update, context):
     if not check_auth(update):
         return
@@ -313,26 +311,30 @@ def receive_file(update, context):
     if not doc.file_name.endswith(".txt"):
         update.message.reply_text("❌ 仅支持TXT")
         return
+
     try:
         file = context.bot.get_file(doc.file_id)
         file.download("temp.txt")
         with open("temp.txt", "r", encoding="utf-8") as f:
             lines = [l.rstrip("\n") for l in f if l.strip()]
         os.remove("temp.txt")
+
         uid = update.effective_user.id
         user_file_data[uid] = lines
         user_filename[uid] = os.path.splitext(doc.file_name)[0]
         user_state[uid] = 1
+        user_thunder[uid] = []
+
         update.message.reply_text("是否插入雷号？是 / 否")
     except Exception as e:
         update.message.reply_text(f"❌ 错误：{e}")
 
+# ===================== 处理文字 =====================
 def handle_text(update, context):
-    if not check_auth(update):
-        return
     uid = update.effective_user.id
     if uid not in user_state:
         return
+
     state = user_state[uid]
     txt = update.message.text.strip()
 
@@ -342,68 +344,63 @@ def handle_text(update, context):
             do_split(uid, update, context)
         elif txt == "是":
             user_state[uid] = 2
-            user_thunder[uid] = []
             update.message.reply_text("请发雷号，一行一个，完成发：完成")
         else:
             update.message.reply_text("请回复：是 / 否")
+
     elif state == 2:
         if txt == "完成":
+            user_state[uid] = 0
             do_insert_and_split(uid, update, context)
         else:
             user_thunder[uid].append(txt)
-            update.message.reply_text(f"已收录：{txt}")
 
+# ===================== 分包逻辑（已修复） =====================
 def do_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
-    name = user_filename.pop(uid, [])
+    name = user_filename.pop(uid, "out")
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_files_in_batch(uid, update, context, parts, name)
     update.message.reply_text("✅ 完成任务了 喵！")
     update.message.reply_text(sad_text())
-    user_state.pop(uid, None)
 
 def do_insert_and_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
     thunders = user_thunder.pop(uid, [])
-    name = user_filename.pop(uid, [])
+    name = user_filename.pop(uid, "out")
+
     if not lines or not thunders:
+        update.message.reply_text("⚠️ 内容不能为空")
         return
+
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     new_parts = []
     for i, p in enumerate(parts):
         new_parts.append(p + [thunders[i % len(thunders)]])
+
     send_files_in_batch(uid, update, context, new_parts, name)
     update.message.reply_text("✅ 报告阿sir我已完成任务！")
     update.message.reply_text(sad_text())
-    user_state.pop(uid, None)
 
 def send_files_in_batch(uid, update, context, parts, base):
-    batch = []
-    for i, p in enumerate(parts, 1):
-        fn = f"{base}_{i}.txt"
-        with open(fn, "w", encoding="utf-8") as f:
-            f.write("\n".join(p))
-        batch.append(fn)
-        if len(batch) == 10:
-            media = [open(x, "rb") for x in batch]
-            context.bot.send_media_group(update.effective_chat.id, media)
-            for x in batch:
-                os.remove(x)
-            batch = []
-    if batch:
-        media = [open(x, "rb") for x in batch]
-        context.bot.send_media_group(update.effective_chat.id, media)
-        for x in batch:
-            os.remove(x)
+    try:
+        for i, part in enumerate(parts, 1):
+            fn = f"{base}_{i}.txt"
+            with open(fn, "w", encoding="utf-8") as f:
+                f.write("\n".join(part))
+            with open(fn, "rb") as f:
+                context.bot.send_document(chat_id=update.effective_chat.id, document=f)
+            os.remove(fn)
+    except Exception as e:
+        update.message.reply_text(f"❌ 发送失败：{e}")
 
-# ===================== 【核心：机器人自动复活】 =====================
+# ===================== 启动 =====================
 def run_bot():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
     while True:
         try:
-            print("✅ 机器人启动中...")
             updater = Updater(TOKEN, use_context=True)
             dp = updater.dispatcher
 
@@ -424,11 +421,9 @@ def run_bot():
 
             updater.start_polling(drop_pending_updates=True)
             updater.idle()
-        except Exception as e:
-            print("⚠️ 机器人断开，5秒后自动重连")
+        except:
             time.sleep(5)
 
-# ===================== 启动 =====================
 def main():
     threading.Thread(target=run_web_server, daemon=True).start()
     threading.Thread(target=keep_alive, daemon=True).start()
