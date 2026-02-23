@@ -160,16 +160,16 @@ def start(update, context):
             "/clearser ID    清空用户有效期\n"
             "/clean          清空所有用户\n"
             "/my             查看有效期\n\n"
-            "发送TXT → 选择是否插雷号"
+            "你好管理员大大😋😋"
         )
     else:
         # 普通用户欢迎语
         update.message.reply_text(
             "✅【TXT分包+插雷号机器人】\n\n"
-            "/split 行数     设置分包行数\n"
+            "/split 行数     设置单包数量\n"
             "/redeem 卡密    兑换使用天数\n"
             "/my             查看有效期\n\n"
-            "发送TXT → 选择是否插雷号"
+            "你好，尊敬的用户，请发送TXT文件来使用我"
         )
 
 # 兑换
@@ -354,7 +354,7 @@ def do_split(user_id, update, context):
     per = user_split_settings.get(user_id, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_files_in_batch(user_id, update, context, parts, original_name, False)
-    update.message.reply_text("✅ 分包完成！")
+    update.message.reply_text("✅ 分包完成，快快拿给小弟做单吧🥹")
     user_state.pop(user_id, None)
 
 def do_insert_and_split(user_id, update, context):
@@ -372,7 +372,7 @@ def do_insert_and_split(user_id, update, context):
         new_part = part + [thunder]
         new_parts.append(new_part)
     send_files_in_batch(user_id, update, context, new_parts, original_name, True)
-    update.message.reply_text("✅ 插雷+分包完成！")
+    update.message.reply_text("✅ 插雷+分包完成。还不谢谢我！")
     user_state.pop(user_id, None)
 
 def send_files_in_batch(user_id, update, context, parts, base_name, with_thunder):
@@ -423,3 +423,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
