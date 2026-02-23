@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import requests
 from flask import Flask
 
 app_web = Flask(__name__)
@@ -13,45 +14,38 @@ def index():
 def run_web_server():
     port = int(os.environ.get('PORT', 10000))
     app_web.run(host='0.0.0.0', port=port)
-# ==================================================
 
-import os
-import json
-import random
-import string
-from datetime import datetime, timedelta
-from telegram import InputMediaDocument
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+# ========== 自动保活：自己访问自己，永不休眠 ==========
+def keep_alive():
+    while True:
+        try:
+            requests.get("https://tg282191090.onrender.com/")
+        except:
+            pass
+        time.sleep(600)  # 10分钟保活一次
 
 # ========== 修复 Python 3.11+ imghdr 缺失 ==========
 class imghdr:
     @staticmethod
-    def what(file, h=None):
+    def what(h=None, file=None):
         if h is None:
-            if isinstance(file, str):
-                with open(file, 'rb') as f:
-                    h = f.read(32)
-            else:
-                loc = file.tell()
-                h = file.read(32)
-                file.seek(loc)
+            return None
         h = h[:32]
-        if not h: return None
-        if h.startswith(b'\xff\xd8\xff'): return 'jpeg'
-        elif h.startswith(b'\x89PNG\r\n\x1a\n'): return 'png'
-        elif h[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
+        if h.startswith(b'\xff\xd8\xff'):
+            return 'jpeg'
+        elif h.startswith(b'\x89PNG\r\n\x1a\n'):
+            return 'png'
+        elif h[:6] in (b'GIF87a', b'GIF89a'):
+            return 'gif'
         return None
-    tests = []
-# ==================================================
 
 # ===================== 你的信息 =====================
-TOKEN = "8511432045:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
+TOKEN = "85114304:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
 ROOT_ADMIN = 7793291484
 # ====================================================
 
 admins = {ROOT_ADMIN}
 user_split_settings = {}
-
 user_state = {}
 user_file_data = {}
 user_thunder = {}
@@ -74,18 +68,16 @@ def save_data(f, d):
 user_data = load_data(DATA_FILE)
 card_data = load_data(CARD_FILE)
 
-# 检查是否在有效期
 def is_user_valid(user_id):
     uid = str(user_id)
     if uid in user_data:
         exp = user_data[uid].get("expire")
         if exp:
-            return datetime.now().timestamp() < exp
+            return time.time() < exp
     return False
 
-# 生成卡密
 def generate_card(days):
-    chars = string.ascii_uppercase + string.digits
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     while True:
         card = ''.join(random.choice(chars) for _ in range(10))
         if card not in card_data:
@@ -93,21 +85,20 @@ def generate_card(days):
             save_data(CARD_FILE, card_data)
             return card
 
-# 兑换卡密
 def redeem_card(user_id, card):
     uid = str(user_id)
     card = card.strip().upper()
     if card not in card_data:
         return "❌ 卡密不存在"
     if card_data[card]["used"]:
-        return "❌ 卡密已被使用"
+        return "❌ 卡密已使用"
     days = card_data[card]["days"]
-    now = datetime.now().timestamp()
+    now = time.time()
     if uid in user_data:
         old = user_data[uid].get("expire", now)
-        new_exp = max(old, now) + timedelta(days=days).total_seconds()
+        new_exp = max(old, now + days*86400)
     else:
-        new_exp = now + timedelta(days=days).total_seconds()
+        new_exp = now + days*86400
     user_data[uid] = {"expire": new_exp}
     card_data[card]["used"] = True
     card_data[card]["user"] = uid
@@ -115,18 +106,15 @@ def redeem_card(user_id, card):
     save_data(CARD_FILE, card_data)
     return f"✅ 兑换成功！有效期 {days} 天"
 
-# 查看有效期
 def get_user_expire_text(user_id):
     uid = str(user_id)
     if uid not in user_data:
         return "❌ 暂无有效期"
     exp = user_data[uid]["expire"]
-    dt = datetime.fromtimestamp(exp)
-    valid = datetime.now().timestamp() < exp
-    return f"✅ 有效期至：{dt.strftime('%Y-%m-%d %H:%M')}\n状态：{'正常' if valid else '已过期'}"
+    valid = time.time() < exp
+    return f"✅ 状态：{'正常' if valid else '已过期'}"
 
-# ======================================================
-
+# ===================== 权限 =====================
 def check_auth(update):
     user_id = update.effective_user.id
     if is_admin(user_id):
@@ -139,14 +127,23 @@ def check_auth(update):
 def is_admin(user_id):
     return user_id in admins
 
+# ===================== 伤感文案 =====================
+def sad_text():
+    texts = [
+        "有些关系，断了好像是解脱，又好像是遗憾。",
+        "后来我什么都想开了，但什么都错过了。",
+        "原来太懂事的人，最不被珍惜。",
+        "有些话我没说，你也没懂，这就是距离。",
+        "我好像在放弃你，又好像在等你。"
+    ]
+    return random.choice(texts)
+
 # ===================== 命令 =====================
 def start(update, context):
     if not check_auth(update):
         return
-    
     user_id = update.effective_user.id
     if is_admin(user_id):
-        # 管理员欢迎语
         update.message.reply_text(
             "👑【管理员后台】\n\n"
             "/split 行数     设置分包行数\n"
@@ -154,66 +151,56 @@ def start(update, context):
             "/deladmin ID    删除管理员\n"
             "/listadmin      查看管理员\n"
             "/card 天数       生成卡密\n"
-            "/listcard       查看所有卡密\n"
-            "/delcard 卡密   删除单个卡密\n"
-            "/clearser ID    清空用户有效期\n"
-            "/clean          清空所有用户\n"
-            "/my             查看有效期\n\n"
-            "尊敬的管理员大大😗😗"
+            "/listcard        查看卡密\n"
+            "/delcard 卡密    删除卡密\n"
+            "/clearser ID     清空用户\n"
+            "/clean           清空所有用户\n"
+            "/my              查看有效期\n\n"
+            "尊敬的管理员大大😗"
+            
         )
     else:
-        # 普通用户欢迎语
         update.message.reply_text(
-            "✅【TXT分包+插雷号机器人】\n\n"
-            "/split 行数     设置分包数量\n"
-            "/redeem 卡密    兑换使用天数\n"
-            "/my             查看自己剩余时间\n\n"
-            "尊敬的用户宝宝请发送TXT来使用我哦😋😋"
+            "✅【大晴机器人】\n\n"
+            "/split 行数      设置单包数量\n"
+            "/redeem 卡密     兑换卡密\n"
+            "/my              查看剩余有效期\n\n"
+            "尊敬的用户宝宝呀 发送给我TxT文件来使用我"
+        
         )
 
-# 兑换
 def redeem(update, context):
-    user_id = update.effective_user.id
+    if not check_auth(update):
+        return
     if not context.args:
         update.message.reply_text("用法：/redeem 卡密")
         return
-    card = context.args[0]
-    res = redeem_card(user_id, card)
+    res = redeem_card(update.effective_user.id, context.args[0])
     update.message.reply_text(res)
 
-# 查看自己
 def my(update, context):
-    user_id = update.effective_user.id
-    update.message.reply_text(get_user_expire_text(user_id))
+    if not check_auth(update):
+        return
+    update.message.reply_text(get_user_expire_text(update.effective_user.id))
 
-# 生成卡密
 def create_card(update, context):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        update.message.reply_text("❌ 仅管理员")
+    if not is_admin(update.effective_user.id):
         return
     try:
         days = int(context.args[0])
         card = generate_card(days)
-        update.message.reply_text(f"✅ 卡密生成：\n{card}\n天数：{days}")
+        update.message.reply_text(f"✅ 卡密：\n{card}\n天数：{days}")
     except:
         update.message.reply_text("用法：/card 天数")
 
-# 查看卡密
 def list_cards(update, context):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
+    if not is_admin(update.effective_user.id):
         return
-    msg = []
-    for k, v in card_data.items():
-        used = "已用" if v["used"] else "未用"
-        msg.append(f"{k} | {v['days']}天 | {used}")
+    msg = [f"{k} | {v['days']}天 | {'已用' if v['used'] else '未用'}" for k, v in card_data.items()]
     update.message.reply_text("\n".join(msg) if msg else "暂无卡密")
 
-# 删除单个卡密
 def delete_card(update, context):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
+    if not is_admin(update.effective_user.id):
         return
     if not context.args:
         update.message.reply_text("用法：/delcard 卡密")
@@ -222,75 +209,63 @@ def delete_card(update, context):
     if card in card_data:
         del card_data[card]
         save_data(CARD_FILE, card_data)
-        update.message.reply_text("✅ 已删除该卡密")
+        update.message.reply_text("✅ 已删除")
     else:
         update.message.reply_text("❌ 卡密不存在")
 
-# 清空单个用户有效期
 def clear_single_user(update, context):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
+    if not is_admin(update.effective_user.id):
         return
     if not context.args:
         update.message.reply_text("用法：/clearser 用户ID")
         return
-    target_uid = context.args[0]
-    if target_uid in user_data:
-        del user_data[target_uid]
+    uid = context.args[0]
+    if uid in user_data:
+        del user_data[uid]
         save_data(DATA_FILE, user_data)
-        update.message.reply_text(f"✅ 已清空用户 {target_uid} 的有效期")
+        update.message.reply_text(f"✅ 已清空 {uid}")
     else:
-        update.message.reply_text("❌ 该用户无有效期数据")
+        update.message.reply_text("❌ 无数据")
 
-# 清空所有用户
 def clean_expired(update, context):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
+    if not is_admin(update.effective_user.id):
         return
     user_data.clear()
     save_data(DATA_FILE, user_data)
-    update.message.reply_text("✅ 已清空所有用户数据")
-
-# ==================================================
+    update.message.reply_text("✅ 已清空所有用户")
 
 def set_split(update, context):
     if not check_auth(update):
         return
-    user_id = update.effective_user.id
     try:
         n = int(context.args[0])
-        if n <= 0:
-            update.message.reply_text("❌ 请输入大于0的数字")
-            return
-        user_split_settings[user_id] = n
-        update.message.reply_text(f"✅ 已设置每 {n} 行分包")
+        if n > 0:
+            user_split_settings[update.effective_user.id] = n
+            update.message.reply_text(f"✅ 已设置：{n}行")
+        else:
+            update.message.reply_text("❌ 必须大于0")
     except:
-        update.message.reply_text("❌ 用法：/split 50")
+        update.message.reply_text("用法：/split 50")
 
 def add_admin(update, context):
-    user_id = update.effective_user.id
-    if user_id != ROOT_ADMIN:
-        update.message.reply_text("❌ 仅主管理员可操作")
+    if update.effective_user.id != ROOT_ADMIN:
         return
     try:
         target = int(context.args[0])
         admins.add(target)
         update.message.reply_text(f"✅ 已添加管理员：{target}")
     except:
-        update.message.reply_text("❌ 用法：/addadmin 123456789")
+        update.message.reply_text("用法：/addadmin ID")
 
 def del_admin(update, context):
-    user_id = update.effective_user.id
-    if user_id != ROOT_ADMIN:
-        update.message.reply_text("❌ 仅主管理员可操作")
+    if update.effective_user.id != ROOT_ADMIN:
         return
     try:
         target = int(context.args[0])
-        if target in admins:
-            admins.remove(target)
-            update.message.reply_text(f"✅ 已删除：{target}")
+        admins.discard(target)
+        update.message.reply_text(f"✅ 已删除：{target}")
     except:
-        update.message.reply_text("❌ 用法：/deladmin 123456789")
+        update.message.reply_text("用法：/deladmin ID")
 
 def list_admin(update, context):
     if not check_auth(update):
@@ -301,109 +276,102 @@ def list_admin(update, context):
 def receive_file(update, context):
     if not check_auth(update):
         return
-    user_id = update.effective_user.id
     doc = update.message.document
     if not doc.file_name.endswith(".txt"):
-        update.message.reply_text("❌ 仅支持TXT文件")
+        update.message.reply_text("❌ 仅支持TXT")
         return
     try:
         file = context.bot.get_file(doc.file_id)
-        temp = "temp.txt"
-        file.download(temp)
-        with open(temp, "r", encoding="utf-8") as f:
-            lines = [line.rstrip("\n") for line in f if line.strip()]
-        os.remove(temp)
-        user_file_data[user_id] = lines
-        user_filename[user_id] = doc.file_name.rsplit('.', 1)[0]
-        user_state[user_id] = 1
-        update.message.reply_text("是否需要插入雷号？回复：是 / 否")
+        file.download("temp.txt")
+        with open("temp.txt", "r", encoding="utf-8") as f:
+            lines = [l.rstrip("\n") for l in f if l.strip()]
+        os.remove("temp.txt")
+        uid = update.effective_user.id
+        user_file_data[uid] = lines
+        user_filename[uid] = os.path.splitext(doc.file_name)[0]
+        user_state[uid] = 1
+        update.message.reply_text("是否插入雷号？是 / 否")
     except Exception as e:
-        update.message.reply_text(f"❌ 读取失败：{str(e)}")
+        update.message.reply_text(f"❌ 错误：{e}")
 
 def handle_text(update, context):
-    # ========== 已修改：机器人自己发也会回复 1 ==========
-    if update.message.text.strip() == "定时刷新机器人":
-        update.message.reply_text("1")
-        return
-    # ==================================================
-
-    # 这里我已经去掉了“忽略自己消息”的限制
-
     if not check_auth(update):
         return
-    user_id = update.effective_user.id
-    if user_id not in user_state:
+
+    uid = update.effective_user.id
+    if uid not in user_state:
         return
-    state = user_state[user_id]
-    text = update.message.text.strip()
+    state = user_state[uid]
+    txt = update.message.text.strip()
+
     if state == 1:
-        if text == "否":
-            user_state[user_id] = 0
-            do_split(user_id, update, context)
-        elif text == "是":
-            user_state[user_id] = 2
-            user_thunder[user_id] = []
-            update.message.reply_text("请直接发送雷号，一行一个")
+        if txt == "否":
+            user_state[uid] = 0
+            do_split(uid, update, context)
+        elif txt == "是":
+            user_state[uid] = 2
+            user_thunder[uid] = []
+            update.message.reply_text("请发雷号，一行一个，完成发：完成")
         else:
             update.message.reply_text("请回复：是 / 否")
     elif state == 2:
-        if text:
-            user_thunder[user_id].append(text)
-            update.message.reply_text(f"已收录：{text}")
-        do_insert_and_split(user_id, update, context)
+        if txt == "完成":
+            do_insert_and_split(uid, update, context)
+        else:
+            user_thunder[uid].append(txt)
+            update.message.reply_text(f"已收录：{txt}")
 
-def do_split(user_id, update, context):
-    lines = user_file_data.pop(user_id, [])
-    original_name = user_filename.pop(user_id, "output")
-    if not lines:
-        update.message.reply_text("❌ 无内容")
-        return
-    per = user_split_settings.get(user_id, 50)
+def do_split(uid, update, context):
+    lines = user_file_data.pop(uid, [])
+    name = user_filename.pop(uid, "out")
+    per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
-    send_files_in_batch(user_id, update, context, parts, original_name, False)
-    update.message.reply_text("✅ 分包完成 还不快点拿给小弟做单！🤓")
-    user_state.pop(user_id, None)
+    send_files_in_batch(uid, update, context, parts, name)
+    update.message.reply_text("✅ 分包完成 你喜欢我嘛？！")
+    update.message.reply_text(sad_text())
+    user_state.pop(uid, None)
 
-def do_insert_and_split(user_id, update, context):
-    original = user_file_data.get(user_id, [])
-    thunder_list = user_thunder.get(user_id, [])
-    original_name = user_filename.get(user_id, "output")
-    if not original or not thunder_list:
+def do_insert_and_split(uid, update, context):
+    lines = user_file_data.pop(uid, [])
+    thunders = user_thunder.pop(uid, [])
+    name = user_filename.pop(uid, "out")
+    if not lines or not thunders:
         return
-    per = user_split_settings.get(user_id, 50)
-    parts = [original[i:i+per] for i in range(0, len(original), per)]
-    t_count = len(thunder_list)
+    per = user_split_settings.get(uid, 50)
+    parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     new_parts = []
-    for idx, part in enumerate(parts, 1):
-        thunder = thunder_list[(idx-1) % t_count]
-        new_part = part + [thunder]
-        new_parts.append(new_part)
-    send_files_in_batch(user_id, update, context, new_parts, original_name, True)
-    update.message.reply_text("✅ 插雷+分包完成，还不快谢谢我！")
-    user_state.pop(user_id, None)
+    for i, p in enumerate(parts):
+        new_parts.append(p + [thunders[i % len(thunders)]])
+    send_files_in_batch(uid, update, context, new_parts, name)
+    update.message.reply_text("✅ 插雷分包完成 我的速度快吧 快夸我！")
+    update.message.reply_text(sad_text())
+    user_state.pop(uid, None)
 
-def send_files_in_batch(user_id, update, context, parts, base_name, with_thunder):
+def send_files_in_batch(uid, update, context, parts, base):
     batch = []
-    for idx, part in enumerate(parts, 1):
-        fname = f"{base_name}_{idx}.txt"
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write("\n".join(part))
-        batch.append(fname)
+    for i, p in enumerate(parts, 1):
+        fn = f"{base}_{i}.txt"
+        with open(fn, "w", encoding="utf-8") as f:
+            f.write("\n".join(p))
+        batch.append(fn)
         if len(batch) == 10:
-            media = [InputMediaDocument(open(f, 'rb')) for f in batch]
+            media = [open(x, "rb") for x in batch]
             context.bot.send_media_group(update.effective_chat.id, media)
-            for f in batch:
-                os.remove(f)
+            for x in batch:
+                os.remove(x)
             batch = []
     if batch:
-        media = [InputMediaDocument(open(f, 'rb')) for f in batch]
+        media = [open(x, "rb") for x in batch]
         context.bot.send_media_group(update.effective_chat.id, media)
-        for f in batch:
-            os.remove(f)
+        for x in batch:
+            os.remove(x)
 
 # ===================== 主程序 =====================
 def main():
     threading.Thread(target=run_web_server, daemon=True).start()
+    threading.Thread(target=keep_alive, daemon=True).start()
+
+    from telegram.ext import Updater
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
@@ -412,8 +380,6 @@ def main():
     dp.add_handler(CommandHandler("addadmin", add_admin))
     dp.add_handler(CommandHandler("deladmin", del_admin))
     dp.add_handler(CommandHandler("listadmin", list_admin))
-
-    # 卡密系统
     dp.add_handler(CommandHandler("redeem", redeem))
     dp.add_handler(CommandHandler("my", my))
     dp.add_handler(CommandHandler("card", create_card))
@@ -422,8 +388,8 @@ def main():
     dp.add_handler(CommandHandler("clearser", clear_single_user))
     dp.add_handler(CommandHandler("clean", clean_expired))
 
-    dp.add_handler(MessageHandler(Filters.document & ~Filters.command, receive_file))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+    dp.add_handler(MessageHandler(Filters.document, receive_file))
+    dp.add_handler(MessageHandler(Filters.text, handle_text))
 
     updater.start_polling()
     updater.idle()
