@@ -45,6 +45,7 @@ class imghdr:
 # ==================================================
 
 # ===================== 你的信息 =====================
+# 已更新为你的新密钥
 TOKEN = "8511432045:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
 ROOT_ADMIN = 7793291484
 # ====================================================
@@ -143,13 +144,33 @@ def is_admin(user_id):
 def start(update, context):
     if not check_auth(update):
         return
-    update.message.reply_text(
-        "✅【TXT分包+插雷号机器人】\n\n"
-        "/split 行数     设置分包行数\n"
-        "/redeem 卡密    兑换使用天数\n"
-        "/my             查看有效期\n\n"
-        "发送TXT → 选择是否插雷号"
-    )
+    
+    user_id = update.effective_user.id
+    if is_admin(user_id):
+        # 管理员欢迎语
+        update.message.reply_text(
+            "👑【管理员后台】\n\n"
+            "/split 行数     设置分包行数\n"
+            "/addadmin ID    添加管理员\n"
+            "/deladmin ID    删除管理员\n"
+            "/listadmin      查看管理员\n"
+            "/card 天数       生成卡密\n"
+            "/listcard       查看所有卡密\n"
+            "/delcard 卡密   删除单个卡密\n"
+            "/clearser ID    清空用户有效期\n"
+            "/clean          清空所有用户\n"
+            "/my             查看有效期\n\n"
+            "发送TXT → 选择是否插雷号"
+        )
+    else:
+        # 普通用户欢迎语
+        update.message.reply_text(
+            "✅【TXT分包+插雷号机器人】\n\n"
+            "/split 行数     设置分包行数\n"
+            "/redeem 卡密    兑换使用天数\n"
+            "/my             查看有效期\n\n"
+            "发送TXT → 选择是否插雷号"
+        )
 
 # 兑换
 def redeem(update, context):
@@ -383,7 +404,7 @@ def main():
     dp.add_handler(CommandHandler("split", set_split))
     dp.add_handler(CommandHandler("addadmin", add_admin))
     dp.add_handler(CommandHandler("deladmin", del_admin))
-    dp.add_handler(CommandHandler("listadmin", list_admin))  # 这里已修复
+    dp.add_handler(CommandHandler("listadmin", list_admin))
 
     # 卡密系统
     dp.add_handler(CommandHandler("redeem", redeem))
@@ -402,4 +423,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
