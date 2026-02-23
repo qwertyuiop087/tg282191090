@@ -9,11 +9,10 @@ ROOT_ADMIN = 7793291484
 # ====================================================
 
 # 全局配置
-admins = {ROOT_ADMIN}  # 管理员列表
-user_split_settings = {}  # 各管理员的分割行数
+admins = {ROOT_ADMIN}
+user_split_settings = {}
 
 def is_admin(user_id: int) -> bool:
-    """判断是否为管理员"""
     return user_id in admins
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,24 +94,22 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ 仅管理员可用")
         return
 
-    # 获取分割行数，默认50
     split_lines = user_split_settings.get(user_id, 50)
     doc = update.message.document
     fname = doc.file_name
 
-    # 校验格式
     if not fname.endswith(".txt"):
         await update.message.reply_text("❌ 仅支持TXT文件")
         return
 
     await update.message.reply_text("📥 正在处理分包...")
     try:
-        # 下载文件
+        # 下载文件（新版写法）
         file = await context.bot.get_file(doc.file_id)
         in_file = "input.txt"
         await file.download_to_drive(in_file)
 
-        # 读取文件内容
+        # 读取并分割
         with open(in_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
@@ -120,7 +117,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         base_name = os.path.splitext(fname)[0]
         part_files = []
 
-        # 分割文件
         for i in range(0, total_lines, split_lines):
             part_num = i // split_lines + 1
             out_name = f"{base_name}-{part_num}.txt"
@@ -128,14 +124,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f.writelines(lines[i:i+split_lines])
             part_files.append(out_name)
 
-        # 批量发送（每5个一批，避免超限）
+        # 批量发送
         batch_size = 5
         for j in range(0, len(part_files), batch_size):
             batch = part_files[j:j+batch_size]
             media_group = []
             for p in batch:
                 media_group.append(InputMediaDocument(open(p, "rb"), filename=p))
-            # 发送批次
             if media_group:
                 time.sleep(1)
                 await context.bot.send_media_group(chat_id=update.effective_chat.id, media=media_group)
@@ -143,32 +138,29 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for p in batch:
                 os.remove(p)
 
-        # 清理原始文件
         os.remove(in_file)
         await update.message.reply_text(f"✅ 分包完成！\n原文件：{fname}\n总行数：{total_lines}\n分包数量：{len(part_files)}")
 
     except Exception as e:
         await update.message.reply_text(f"❌ 处理失败：{str(e)}")
-        # 异常清理
         if os.path.exists(in_file):
             os.remove(in_file)
 
 def main():
-    # 初始化机器人（新版API，兼容Python 3.14）
+    # 核心修复：新版启动方式（避开Updater bug）
     application = Application.builder().token(TOKEN).build()
 
-    # 注册所有命令
+    # 注册命令
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("split", set_split))
     application.add_handler(CommandHandler("addadmin", add_admin))
     application.add_handler(CommandHandler("deladmin", del_admin))
     application.add_handler(CommandHandler("listadmin", list_admin))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    # 非命令文本回复
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u,c: u.message.reply_text("❌ 仅管理员可用")))
 
-    # 启动机器人（新版启动方式）
-    application.run_polling(timeout=15, read_timeout=15, write_timeout=15)
+    # 启动（仅保留基础参数，避开bug）
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
