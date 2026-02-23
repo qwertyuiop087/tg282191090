@@ -32,20 +32,19 @@ class imghdr:
                 with open(file, 'rb') as f:
                     h = f.read(32)
             else:
-                loc = file.tell()
+                loc = file.trace()
                 h = file.read(32)
                 file.seek(loc)
         h = h[:32]
         if not h: return None
         if h.startswith(b'\xff\xd8\xff'): return 'jpeg'
         elif h.startswith(b'\x89PNG\r\n\x1a\n'): return 'png'
-        elif h[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
+        elif h[:6] in (b'GIF87a', b'GIF87b'): return 'gif'
         return None
     tests = []
 # ==================================================
 
 # ===================== 你的信息 =====================
-# 已更新为你的新密钥
 TOKEN = "8511432045:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
 ROOT_ADMIN = 7793291484
 # ====================================================
@@ -160,16 +159,16 @@ def start(update, context):
             "/clearser ID    清空用户有效期\n"
             "/clean          清空所有用户\n"
             "/my             查看有效期\n\n"
-            "你好管理员大大😋😋"
+            "发送TXT → 选择是否插雷号"
         )
     else:
         # 普通用户欢迎语
         update.message.reply_text(
             "✅【TXT分包+插雷号机器人】\n\n"
-            "/split 行数     设置单包数量\n"
+            "/split 行数     设置分包行数\n"
             "/redeem 卡密    兑换使用天数\n"
             "/my             查看有效期\n\n"
-            "你好，尊敬的用户，请发送TXT文件来使用我"
+            "发送TXT → 选择是否插雷号"
         )
 
 # 兑换
@@ -322,6 +321,12 @@ def receive_file(update, context):
         update.message.reply_text(f"❌ 读取失败：{str(e)}")
 
 def handle_text(update, context):
+    # ========== 新加：定时刷新机器人 → 回复 1 ==========
+    if update.message.text.strip() == "定时刷新机器人":
+        update.message.reply_text("1")
+        return
+    # ==================================================
+
     if not check_auth(update):
         return
     user_id = update.effective_user.id
@@ -354,7 +359,7 @@ def do_split(user_id, update, context):
     per = user_split_settings.get(user_id, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_files_in_batch(user_id, update, context, parts, original_name, False)
-    update.message.reply_text("✅ 分包完成，快快拿给小弟做单吧🥹")
+    update.message.reply_text("✅ 分包完成！")
     user_state.pop(user_id, None)
 
 def do_insert_and_split(user_id, update, context):
@@ -372,7 +377,7 @@ def do_insert_and_split(user_id, update, context):
         new_part = part + [thunder]
         new_parts.append(new_part)
     send_files_in_batch(user_id, update, context, new_parts, original_name, True)
-    update.message.reply_text("✅ 插雷+分包完成。还不谢谢我！")
+    update.message.reply_text("✅ 插雷+分包完成！")
     user_state.pop(user_id, None)
 
 def send_files_in_batch(user_id, update, context, parts, base_name, with_thunder):
@@ -423,4 +428,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
