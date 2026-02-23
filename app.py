@@ -1,4 +1,4 @@
-# ========== 最终完整可用版 ==========
+# ========== 最终完整可用版（所有管理员功能已补全） ==========
 import os
 import threading
 import time
@@ -38,7 +38,7 @@ class imghdr:
         return None
 
 # ===================== 你的信息 =====================
-TOKEN = "85114304:AAEA5KDgcomQNaQ38P7YVeUweY0Z24q9fc"
+TOKEN = "8511432045:AAFwRpGl3sbz3tQK4U7wD3T7LZDnkjqKsW8"
 ROOT_ADMIN = 7793291090
 # ====================================================
 
@@ -130,7 +130,7 @@ def is_admin(user_id):
 # ===================== 伤感文案 =====================
 def sad_text():
     texts = [
-        "缘分总比刻意好"
+        "缘分总比刻意好",
         "有些关系，断了好像是解脱，又好像是遗憾。",
         "后来我什么都想开了，但什么都错过了。",
         "原来太懂事的人，最不被珍惜。",
@@ -221,6 +221,61 @@ def set_split(update, context):
             update.message.reply_text("❌ 必须大于0")
     except:
         update.message.reply_text("用法：/split 50")
+
+# 添加管理员
+def add_admin(update, context):
+    uid = update.effective_user.id
+    if uid != ROOT_ADMIN:
+        update.message.reply_text("❌ 仅主管理员可用")
+        return
+    try:
+        target = int(context.args[0])
+        admins.add(target)
+        update.message.reply_text(f"✅ 已添加管理员：{target}")
+    except:
+        update.message.reply_text("用法：/addadmin 12345678")
+
+# 删除管理员
+def del_admin(update, context):
+    uid = update.effective_user.id
+    if uid != ROOT_ADMIN:
+        update.message.reply_text("❌ 仅主管理员可用")
+        return
+    try:
+        target = int(context.args[0])
+        if target in admins:
+            admins.remove(target)
+            update.message.reply_text(f"✅ 已删除管理员：{target}")
+        else:
+            update.message.reply_text("❌ 该用户不是管理员")
+    except:
+        update.message.reply_text("用法：/deladmin 12345678")
+
+# 查看管理员列表
+def list_admin(update, context):
+    if not is_admin(update.effective_user.id):
+        update.message.reply_text("❌ 无权限")
+        return
+    msg = ["👑 管理员列表："]
+    for a in admins:
+        msg.append(f"• {a}")
+    update.message.reply_text("\n".join(msg))
+
+# 清空用户有效期
+def clear_user(update, context):
+    if not is_admin(update.effective_user.id):
+        update.message.reply_text("❌ 无权限")
+        return
+    try:
+        target = str(context.args[0])
+        if target in user_data:
+            del user_data[target]
+            save_data(DATA_FILE, user_data)
+            update.message.reply_text(f"✅ 已清空用户 {target} 的有效期")
+        else:
+            update.message.reply_text("❌ 用户不存在")
+    except:
+        update.message.reply_text("用法：/clearser 12345678")
 
 # ===================== 功能逻辑 =====================
 def receive_file(update, context):
@@ -330,6 +385,10 @@ def main():
     dp.add_handler(CommandHandler("split", set_split))
     dp.add_handler(CommandHandler("card", create_card))
     dp.add_handler(CommandHandler("redeem", redeem))
+    dp.add_handler(CommandHandler("addadmin", add_admin))
+    dp.add_handler(CommandHandler("deladmin", del_admin))
+    dp.add_handler(CommandHandler("listadmin", list_admin))
+    dp.add_handler(CommandHandler("clearser", clear_user))
     dp.add_handler(MessageHandler(Filters.document, receive_file))
     dp.add_handler(MessageHandler(Filters.text, handle_text))
 
