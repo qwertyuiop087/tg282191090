@@ -1,3 +1,19 @@
+# ========== 下面是我帮你加的：解决 Render 未检测到开放端口 ==========
+import os
+import threading
+from flask import Flask
+
+app_web = Flask(__name__)
+
+@app_web.route('/')
+def index():
+    return "Bot is running"
+
+def run_web_server():
+    port = int(os.environ.get('PORT', 10000))
+    app_web.run(host='0.0.0.0', port=port)
+# ==================================================================
+
 import os
 from telegram import InputMediaDocument
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
@@ -24,7 +40,7 @@ class imghdr:
 # ======================================================
 
 # ===================== 你的信息 =====================
-TOKEN = "8511432045:AAEA5KDgcomQNaQ38P7Y5VeUweY0Z24q9fc"
+TOKEN = "8511432045:AAFmhhPO-pt-MkP5PeL8pnTMD9SC9xzCLIQ"
 ROOT_ADMIN = 7793291484
 # ====================================================
 
@@ -223,6 +239,10 @@ def send_files_in_batch(user_id, update, context, parts, base_name, with_thunder
             os.remove(f)
 
 def main():
+    # ========== 我帮你加的：启动端口服务（后台运行） ==========
+    threading.Thread(target=run_web_server, daemon=True).start()
+    # ======================================================
+    
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
@@ -240,4 +260,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
