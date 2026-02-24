@@ -5,7 +5,7 @@ import requests
 import random
 import json
 from flask import Flask
-from telegram import InputMediaDocument  # 必须导入媒体组文档类
+from telegram import InputMediaDocument
 
 app_web = Flask(__name__)
 
@@ -40,13 +40,13 @@ class imghdr:
         return None
 
 # ===================== 配置信息（请勿修改） =====================
-TOKEN = "8511432045:AAHeOkZ1tgmJZ8pwS2BdkRJl08fb0F9okK8"
+TOKEN = "8511432045:AAHeOkZ1tgmJZ1pwS2BdkRJl08fb0F9okK8"
 ROOT_ADMIN = 7793291484
 # ================================================================
 
 admins = {ROOT_ADMIN}
 user_split_settings = {}
-user_state = {}  # 1:选插雷, 2:输雷号
+user_state = {}
 user_file_data = {}
 user_thunder = {}
 user_filename = {}
@@ -130,13 +130,12 @@ def sad_text():
 # ===================== 命令处理 =====================
 def start(update, context):
     uid = update.effective_user.id
-    # 清空所有状态，避免冲突
     for k in [user_state, user_file_data, user_thunder, user_filename]:
         k.pop(uid, None)
-    
+
     if not check_auth(update):
         return
-    
+
     update.message.reply_text(
         "👑【管理员后台】\n\n" if is_admin(uid) else "✅【大晴机器人】\n\n"
         + ("/all  查看所有用户\n"
@@ -254,25 +253,22 @@ def receive_file(update, context):
     if not doc or not doc.file_name.endswith(".txt"):
         update.message.reply_text("❌ 仅支持TXT文件")
         return
-    
+
     uid = update.effective_user.id
-    # 清空旧状态
     user_state.pop(uid, None)
     user_file_data.pop(uid, None)
-    
+
     try:
-        # 下载并读取文件
         file = context.bot.get_file(doc.file_id)
         file.download("temp.txt")
         with open("temp.txt", "r", encoding="utf-8") as f:
             lines = [l.strip() for l in f if l.strip()]
         os.remove("temp.txt")
-        
+
         if not lines:
             update.message.reply_text("❌ 文件内容为空")
             return
-        
-        # 保存数据，进入选插雷状态
+
         user_file_data[uid] = lines
         user_filename[uid] = os.path.splitext(doc.file_name)[0]
         user_state[uid] = 1
@@ -286,10 +282,10 @@ def handle_text(update, context):
     uid = update.effective_user.id
     if uid not in user_state:
         return
-    
+
     state = user_state[uid]
     txt = update.message.text.strip()
-    
+
     if state == 1:
         if txt == "否":
             do_process(uid, update, context, insert_thunder=False)
@@ -309,91 +305,79 @@ def handle_text(update, context):
             user_thunder[uid].append(txt)
             update.message.reply_text(f"✅ 已收录雷号：{txt}（共{len(user_thunder[uid])}个）")
 
+# ===================== 已修复：1个文件 = 1个雷号，循环 =====================
 def do_process(uid, update, context, insert_thunder):
-    """核心处理：拆分并调用10个一组发送"""
     lines = user_file_data.pop(uid, [])
     base_name = user_filename.pop(uid, "output")
     per = user_split_settings.get(uid, 50)
     thunders = user_thunder.pop(uid, []) if insert_thunder else []
-    
-    # 拆分数据
+
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
-    
-    # 插入雷号（如果需要）
-    if insert_thunder and thunders:
-        parts = [p + [thunders[i % len(thunders)]] for i, p in enumerate(parts)]
-    
+
     if not parts:
         update.message.reply_text("❌ 无数据可拆分")
         user_state.pop(uid, None)
         return
-    
-    # 执行10个一组发送
+
+    # 正确埋雷：第1个文件用第1个雷，第2个用第2个，循环
+    if insert_thunder and thunders:
+        new_parts = []
+        for i, p in enumerate(parts):
+            thunder_idx = i % len(thunders)
+            one_thunder = thunders[thunder_idx]
+            new_part = p + [one_thunder]
+            new_parts.append(new_part)
+        parts = new_parts
+
     send_10_in_one_group(uid, update, context, parts, base_name)
-    
-    # 发送完成反馈
+
     update.message.reply_text(f"✅ 全部处理完成！共{len(parts)}个文件")
     update.message.reply_text(sad_text())
     user_state.pop(uid, None)
 
-# ===================== 核心：10个文件组成一个媒体组发送 =====================
+# ===================== 10个文件一组媒体组发送 =====================
 def send_10_in_one_group(uid, update, context, parts, base_name):
     chat_id = update.effective_chat.id
-    # 按10个为一组拆分文件包
+
     for batch_start in range(0, len(parts), 10):
         batch_parts = parts[batch_start:batch_start+10]
         media_group = []
         temp_files = []
-        
-        # 构建媒体组
+
         for idx, part in enumerate(batch_parts):
-            # 计算全局文件序号
             file_num = batch_start + idx + 1
             file_name = f"{base_name}_{file_num}.txt"
-            
-            # 写入临时文件
+
             with open(file_name, "w", encoding="utf-8") as f:
                 f.write("\n".join(part))
             temp_files.append(file_name)
-            
-            # 封装为InputMediaDocument（关键修复）
+
             with open(file_name, "rb") as f:
-                media = InputMediaDocument(
-                    media=f,
-                    filename=file_name,
-                    # 仅每组第一个文件加说明，避免刷屏
-                    caption=f"📦 第{batch_start//10 + 1}组 / 共{len(parts)//10 + (1 if len(parts)%10 else 0)}组" if idx == 0 else ""
-                )
+                cap = f"📦 第{batch_start//10 + 1}组" if idx == 0 else ""
+                media = InputMediaDocument(media=f, filename=file_name, caption=cap)
                 media_group.append(media)
-        
-        # 一次性发送整个媒体组（10个文件）
+
         try:
             context.bot.send_media_group(chat_id=chat_id, media=media_group)
         except Exception as e:
             update.message.reply_text(f"⚠️ 第{batch_start//10 + 1}组发送失败：{str(e)}")
         finally:
-            # 无论成败，删除所有临时文件
             for f in temp_files:
                 if os.path.exists(f):
                     os.remove(f)
-        
-        # 每组发送后短暂延迟，避免极端情况限流
         time.sleep(0.5)
 
-# ===================== 启动逻辑 =====================
+# ===================== 启动 =====================
 def main():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-    
-    # 启动保活Web服务
+
     threading.Thread(target=run_web_server, daemon=True).start()
     time.sleep(2)
     threading.Thread(target=keep_alive, daemon=True).start()
-    
-    # 初始化机器人
+
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
-    
-    # 注册处理器（顺序不可乱）
+
     cmd_handlers = [
         CommandHandler("start", start),
         CommandHandler("all", all_users),
@@ -406,16 +390,14 @@ def main():
         CommandHandler("listadmin", list_admin),
         CommandHandler("clearser", clear_user)
     ]
-    for handler in cmd_handlers:
-        dp.add_handler(handler)
-    
-    # 文件处理器优先级高于文本处理器
+    for h in cmd_handlers:
+        dp.add_handler(h)
+
     dp.add_handler(MessageHandler(Filters.document, receive_file))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-    
-    # 启动轮询，忽略历史消息
+
     updater.start_polling(drop_pending_updates=True, timeout=30, read_latency=2)
-    print("✅ 机器人启动成功（10个文件一组批量发送）")
+    print("✅ 机器人启动成功（已修复：1文件1雷号循环）")
     updater.idle()
 
 if __name__ == "__main__":
