@@ -23,10 +23,10 @@ def keep_alive():
             pass
         time.sleep(60)
 
-# ===================== 你的信息（自己改这里） =====================
+# ===================== 你的信息（已帮你改好） =====================
 TOKEN = "8511432045:AAFOfPsHMt6cJJ2oSPTQ-2ONRzfBLtt4xjI"
 ROOT_ADMIN = 7793291484
-# ================================================================
+# =================================================================
 
 admins = {ROOT_ADMIN}
 user_split_settings = {}
@@ -338,23 +338,27 @@ def do_insert_and_split(uid, update, context):
     update.message.reply_text("✅ 带雷分包完成！")
     update.message.reply_text(sad_text())
 
-# ===================== 【重点：一次发10个文件，不卡】 =====================
+# ===================== 【已改：处理完一次性发10个】 =====================
 def send_all(uid, update, context, parts, base):
     try:
-        batch_size = 10  # 一次发10个
-        for i in range(0, len(parts), batch_size):
-            batch = parts[i:i+batch_size]
-            for j, part in enumerate(batch, 1):
-                idx = i + j
-                fn = f"{base}_{idx}.txt"
-                with open(fn, "w", encoding="utf-8") as f:
-                    f.write("\n".join(part))
-                with open(fn, "rb") as f:
-                    context.bot.send_document(update.effective_chat.id, f)
-                os.remove(fn)
-            time.sleep(1)
+        chat_id = update.effective_chat.id
+        created_files = []
+
+        # 先生成最多10个文件
+        for idx, part in enumerate(parts[:10], 1):
+            fn = f"{base}_{idx}.txt"
+            with open(fn, "w", encoding="utf-8") as f:
+                f.write("\n".join(part))
+            created_files.append(fn)
+
+        # 生成完再一起发送
+        for fn in created_files:
+            with open(fn, "rb") as f:
+                context.bot.send_document(chat_id, f, filename=fn)
+            os.remove(fn)
+
     except Exception as e:
-        update.message.reply_text("❌ 发送失败")
+        update.message.reply_text(f"❌ 发送失败：{str(e)}")
 
 # ===================== 机器人自动复活 =====================
 def run_bot():
