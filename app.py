@@ -39,10 +39,10 @@ class imghdr:
         if h[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
         return None
 
-# ===================== 配置信息（请勿修改） =====================
+# ===================== 配置信息 =====================
 TOKEN = "8511432045:AAEFFnxjFo2yYhHAFMAIxt1-1we5hvGnpGY"
 ROOT_ADMIN = 7793291484
-# ================================================================
+# ====================================================
 
 admins = {ROOT_ADMIN}
 user_split_settings = {}
@@ -119,12 +119,17 @@ def check_auth(update):
 def is_admin(user_id):
     return user_id in admins
 
-# ===================== 文案 =====================
+# ===================== 伤感文案（多加5条，共8条） =====================
 def sad_text():
     return random.choice([
         "缘分总比刻意好",
         "有些关系，断了好像是解脱，又好像是遗憾。",
-        "后来我什么都想开了，但什么都错过了。"
+        "后来我什么都想开了，但什么都错过了。",
+        "热情这东西，耗尽了就只剩疲惫和冷漠。",
+        "原来成年人的崩溃，都是静悄悄的。",
+        "好多话忍着憋着，到最后懒得说了。",
+        "失望到了极致，反倒说不出来话了。",
+        "总在盼望，总在失望，日子也就这样了。"
     ])
 
 # ===================== 命令处理 =====================
@@ -132,10 +137,8 @@ def start(update, context):
     uid = update.effective_user.id
     for k in [user_state, user_file_data, user_thunder, user_filename]:
         k.pop(uid, None)
-
     if not check_auth(update):
         return
-
     update.message.reply_text(
         "👑【管理员后台】\n\n" if is_admin(uid) else "✅【大晴机器人】\n\n"
         + ("/all        查看所有用户\n"
@@ -246,7 +249,7 @@ def clear_user(update, context):
     except:
         update.message.reply_text("用法：/clearser 用户ID")
 
-# ===================== 新增：给用户ID增加时间 =====================
+# ===================== 加时命令 =====================
 def add_time_to_user(update, context):
     if update.effective_user.id != ROOT_ADMIN:
         update.message.reply_text("❌ 仅主管理员可用")
@@ -266,7 +269,7 @@ def add_time_to_user(update, context):
     except:
         update.message.reply_text("用法：/addtime 用户ID 天数")
 
-# ===================== 核心文件处理 =====================
+# ===================== 文件接收 =====================
 def receive_file(update, context):
     if not check_auth(update):
         return
@@ -274,22 +277,18 @@ def receive_file(update, context):
     if not doc or not doc.file_name.endswith(".txt"):
         update.message.reply_text("❌ 仅支持TXT文件")
         return
-
     uid = update.effective_user.id
     user_state.pop(uid, None)
     user_file_data.pop(uid, None)
-
     try:
         file = context.bot.get_file(doc.file_id)
         file.download("temp.txt")
         with open("temp.txt", "r", encoding="utf-8") as f:
             lines = [l.strip() for l in f if l.strip()]
         os.remove("temp.txt")
-
         if not lines:
             update.message.reply_text("❌ 文件内容为空")
             return
-
         user_file_data[uid] = lines
         user_filename[uid] = os.path.splitext(doc.file_name)[0]
         user_state[uid] = 1
@@ -297,13 +296,13 @@ def receive_file(update, context):
     except Exception as e:
         update.message.reply_text(f"❌ 文件处理失败：{str(e)}")
 
+# ===================== 关键修复：多行雷号自动拆分 =====================
 def handle_text(update, context):
     if not check_auth(update):
         return
     uid = update.effective_user.id
     if uid not in user_state:
         return
-
     state = user_state[uid]
     txt = update.message.text.strip()
 
@@ -316,6 +315,7 @@ def handle_text(update, context):
             update.message.reply_text("请发送雷号（一行一个），完成后发送：完成")
         else:
             update.message.reply_text("⚠️ 请回复“是”或“否”")
+
     elif state == 2:
         if txt == "完成":
             if not user_thunder[uid]:
@@ -323,16 +323,17 @@ def handle_text(update, context):
                 return
             do_process(uid, update, context, insert_thunder=True)
         else:
-            user_thunder[uid].append(txt)
-            update.message.reply_text(f"✅ 已收录雷号：{txt}（共{len(user_thunder[uid])}个）")
+            # 自动按换行拆分，一次性发10行也会拆成10个雷号
+            lines = [line.strip() for line in txt.splitlines() if line.strip()]
+            user_thunder[uid].extend(lines)
+            update.message.reply_text(f"✅ 已收录雷号：共{len(user_thunder[uid])}个")
 
-# ===================== 已修复：1个文件 = 1个雷号，循环 =====================
+# ===================== 核心修复：1文件=1雷号，循环 =====================
 def do_process(uid, update, context, insert_thunder):
     lines = user_file_data.pop(uid, [])
     base_name = user_filename.pop(uid, "output")
     per = user_split_settings.get(uid, 50)
     thunders = user_thunder.pop(uid, []) if insert_thunder else []
-
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
 
     if not parts:
@@ -351,37 +352,31 @@ def do_process(uid, update, context, insert_thunder):
         parts = new_parts
 
     send_10_in_one_group(uid, update, context, parts, base_name)
-
     update.message.reply_text(f"✅ 全部处理完成！共{len(parts)}个文件")
     update.message.reply_text(sad_text())
     user_state.pop(uid, None)
 
-# ===================== 10个文件一组媒体组发送 =====================
+# ===================== 发送：已去掉所有分组标题 =====================
 def send_10_in_one_group(uid, update, context, parts, base_name):
     chat_id = update.effective_chat.id
-
     for batch_start in range(0, len(parts), 10):
         batch_parts = parts[batch_start:batch_start+10]
         media_group = []
         temp_files = []
-
         for idx, part in enumerate(batch_parts):
             file_num = batch_start + idx + 1
             file_name = f"{base_name}_{file_num}.txt"
-
             with open(file_name, "w", encoding="utf-8") as f:
                 f.write("\n".join(part))
             temp_files.append(file_name)
-
             with open(file_name, "rb") as f:
-                cap = f"📦 第{batch_start//10 + 1}组" if idx == 0 else ""
-                media = InputMediaDocument(media=f, filename=file_name, caption=cap)
+                # 这里已经清空标题，不显示任何文字
+                media = InputMediaDocument(media=f, filename=file_name)
                 media_group.append(media)
-
         try:
             context.bot.send_media_group(chat_id=chat_id, media=media_group)
         except Exception as e:
-            update.message.reply_text(f"⚠️ 第{batch_start//10 + 1}组发送失败：{str(e)}")
+            update.message.reply_text(f"⚠️ 发送失败：{str(e)}")
         finally:
             for f in temp_files:
                 if os.path.exists(f):
@@ -391,11 +386,9 @@ def send_10_in_one_group(uid, update, context, parts, base_name):
 # ===================== 启动 =====================
 def main():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-
     threading.Thread(target=run_web_server, daemon=True).start()
     time.sleep(2)
     threading.Thread(target=keep_alive, daemon=True).start()
-
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
@@ -419,9 +412,8 @@ def main():
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
 
     updater.start_polling(drop_pending_updates=True, timeout=30, read_latency=2)
-    print("✅ 机器人启动成功（已修复：1文件1雷号循环 + addtime加时）")
+    print("✅ 机器人启动成功（已修复：多行雷号拆分 + 1文件1雷 + 无分组标题 + 8条伤感文案）")
     updater.idle()
 
 if __name__ == "__main__":
     main()
-
