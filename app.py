@@ -24,8 +24,8 @@ def keep_alive():
             pass
         time.sleep(60)
 
-# ===================== 核心配置（已填好） =====================
-TOKEN = "8511432045:AAGnr6I7x_VN8D7R0Ve0cP4XiFiJyQpmQ-s"
+# ===================== 核心配置（已更新） =====================
+TOKEN = "8511432045:AAHeOkZ1tgmJZ8pwS2BdkRJl08fb0F9okK8"
 ROOT_ADMIN = 7793291484
 admins = {str(ROOT_ADMIN)}
 
@@ -119,6 +119,9 @@ def cmd_listcard(update, context):
         update.message.reply_text("❌ 无权限")
         return
     card_data = load_json(CARD_FILE)
+    if not card_data:
+        update.message.reply_text("暂无卡密")
+        return
     msg = ["所有卡密："]
     for c, info in card_data.items():
         used = "✅ 未使用" if not info["used"] else "❌ 已使用"
@@ -173,10 +176,17 @@ def cmd_card(update, context):
         update.message.reply_text("用法：/card 天数")
         return
     try:
-        card = generate_card(int(context.args[0]))
-        update.message.reply_text(f"✅ 卡密：\n{card}")
-    except:
-        update.message.reply_text("❌ 参数错误")
+        # 修复：确保参数是整数
+        days = int(context.args[0])
+        if days > 0:
+            card = generate_card(days)
+            update.message.reply_text(f"✅ 卡密：\n{card}")
+        else:
+            update.message.reply_text("❌ 天数必须大于0")
+    except ValueError:
+        update.message.reply_text("❌ 参数必须是数字")
+    except Exception as e:
+        update.message.reply_text(f"❌ 生成失败：{str(e)}")
 
 def cmd_split(update, context):
     try:
@@ -314,7 +324,7 @@ def do_split(uid, update, context):
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_all(uid, update, context, parts, name)
-    update.message.reply_text(f"✅ 我搞完了哦 喵！共生成 {len(parts)} 个文件")
+    update.message.reply_text(f"✅ 分包完成！共生成 {len(parts)} 个文件")
 
 def do_insert_and_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
@@ -326,7 +336,7 @@ def do_insert_and_split(uid, update, context):
     for i, p in enumerate(parts):
         new_parts.append(p + [thunders[i % len(thunders)]])
     send_all(uid, update, context, new_parts, name)
-    update.message.reply_text(f"✅ 报告阿sir！共生成 {len(new_parts)} 个文件")
+    update.message.reply_text(f"✅ 带雷分包完成！共生成 {len(new_parts)} 个文件")
 
 def send_all(uid, update, context, parts, base):
     try:
@@ -423,4 +433,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
