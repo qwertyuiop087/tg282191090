@@ -5,6 +5,7 @@ import requests
 import random
 import json
 from flask import Flask
+from telegram import InputMediaDocument  # 新增：导入媒体组文档类
 
 app_web = Flask(__name__)
 
@@ -397,35 +398,45 @@ def do_insert_and_split(uid, update, context):
     user_state.pop(uid, None)
 
 def send_files_in_batch(uid, update, context, parts, base):
-    """不分批次，逐个发送文件，避免 send_media_group 的类型错误"""
+    """批量发送（媒体组），不分批次，修复 parse_mode 错误"""
     if not parts:
         update.message.reply_text("❌ 无文件可发送")
         return
     
     chat_id = update.effective_chat.id
-    
+    media_group = []  # 存储媒体组对象
+    temp_files = []   # 记录临时文件路径，用于后续删除
+
+    # 1. 构建媒体组和临时文件
     for i, part in enumerate(parts, 1):
         fn = f"{base}_{i}.txt"
-        try:
-            # 先生成本地文件
-            with open(fn, "w", encoding="utf-8") as f:
-                f.write("\n".join(part))
-            
-            # 逐个发送文档，而不是用 send_media_group
-            with open(fn, "rb") as f:
-                context.bot.send_document(
-                    chat_id=chat_id,
-                    document=f,
-                    filename=fn,
-                    caption=f"✅ 第 {i} 包 / 共 {len(parts)} 包"
-                )
-            # 发送成功后删除本地文件
-            os.remove(fn)
-            # 可选：加个极短延迟，避免极端情况被限制
-            time.sleep(0.2)
-        except Exception as e:
-            update.message.reply_text(f"⚠️ 第 {i} 包发送失败：{str(e)}")
-            # 失败时也删除文件，避免垃圾文件堆积
+        # 写入临时文件
+        with open(fn, "w", encoding="utf-8") as f:
+            f.write("\n".join(part))
+        temp_files.append(fn)
+        
+        # 核心修复：用 InputMediaDocument 封装文件，指定媒体类型
+        with open(fn, "rb") as f:
+            media = InputMediaDocument(
+                media=f,
+                filename=fn,
+                caption=f"✅ 第 {i} 包 / 共 {len(parts)} 包" if i == 1 else ""
+                # 媒体组中仅第一个文件带标题，避免重复刷屏
+            )
+            media_group.append(media)
+
+    # 2. 一次性发送整个媒体组
+    try:
+        context.bot.send_media_group(
+            chat_id=chat_id,
+            media=media_group
+        )
+        update.message.reply_text(f"✅ 全部发送完成！共 {len(parts)} 包")
+    except Exception as e:
+        update.message.reply_text(f"⚠️ 批量发送失败：{str(e)}")
+    finally:
+        # 3. 无论发送成功与否，删除所有临时文件
+        for fn in temp_files:
             if os.path.exists(fn):
                 os.remove(fn)
 
