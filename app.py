@@ -40,7 +40,7 @@ DATA_FILE = "user_data.json"
 CARD_FILE = "cards.json"
 
 def load_data(f):
-    if not os.path.exists(f):
+    if not os.exists(f):
         return {}
     with open(f, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -338,23 +338,26 @@ def do_insert_and_split(uid, update, context):
     update.message.reply_text("✅ 带雷分包完成！")
     update.message.reply_text(sad_text())
 
-# ===================== 【已改：处理完一次性发10个】 =====================
+# ===================== ✅ 真正：先生成10个，再一次性全部发出 =====================
 def send_all(uid, update, context, parts, base):
     try:
         chat_id = update.effective_chat.id
-        created_files = []
+        files = []
 
-        # 先生成最多10个文件
-        for idx, part in enumerate(parts[:10], 1):
-            fn = f"{base}_{idx}.txt"
+        # 1. 先生成 10 个文件（不发送）
+        for i, part in enumerate(parts[:10], 1):
+            fn = f"{base}_{i}.txt"
             with open(fn, "w", encoding="utf-8") as f:
                 f.write("\n".join(part))
-            created_files.append(fn)
+            files.append(fn)
 
-        # 生成完再一起发送
-        for fn in created_files:
+        # 2. 一次性全部发送
+        for fn in files:
             with open(fn, "rb") as f:
                 context.bot.send_document(chat_id, f, filename=fn)
+
+        # 3. 发完统一删除
+        for fn in files:
             os.remove(fn)
 
     except Exception as e:
