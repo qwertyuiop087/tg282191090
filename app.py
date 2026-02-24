@@ -4,6 +4,7 @@ import time
 import random
 import json
 from flask import Flask
+from telegram import InputMediaDocument
 
 app = Flask(__name__)
 
@@ -23,19 +24,20 @@ def keep_alive():
             pass
         time.sleep(60)
 
-# ===================== 你的信息（已帮你改好） =====================
+# ===================== 核心配置（已填好） =====================
 TOKEN = "8511432045:AAFOfPsHMt6cJJ2oSPTQ-2ONRzfBLtt4xjI"
 ROOT_ADMIN = 7793291484
-# ====================================================================
+# ============================================================
 
+# 全局变量
 admins = {str(ROOT_ADMIN)}
 user_split_settings = {}
-user_file_data = {}
-user_filename = {}
 user_state = {}
+user_file_data = {}
 user_thunder = {}
+user_filename = {}
 
-# ===================== 卡密系统 =====================
+# ===================== 数据存储 =====================
 DATA_FILE = "user_data.json"
 CARD_FILE = "cards.json"
 
@@ -52,6 +54,7 @@ def save_data(f, d):
 user_data = load_data(DATA_FILE)
 card_data = load_data(CARD_FILE)
 
+# ===================== 权限判断 =====================
 def is_user_valid(user_id):
     uid = str(user_id)
     return uid in user_data and user_data[uid]["expire"] > time.time()
@@ -59,6 +62,7 @@ def is_user_valid(user_id):
 def is_admin(user_id):
     return str(user_id) in admins
 
+# ===================== 卡密系统 =====================
 def generate_card(days):
     chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     while True:
@@ -77,7 +81,7 @@ def redeem_card(user_id, card):
         return "❌ 卡密已使用"
     days = card_data[card]["days"]
     now = time.time()
-    new_exp = now + days*86400
+    new_exp = now + days * 86400
     if uid in user_data:
         new_exp = max(user_data[uid]["expire"], new_exp)
     user_data[uid] = {"expire": new_exp}
@@ -111,7 +115,7 @@ def sad_text():
     ]
     return random.choice(texts)
 
-# ===================== 命令 =====================
+# ===================== 命令处理 =====================
 def start(update, context):
     user_id = update.effective_user.id
     if is_admin(user_id):
@@ -262,7 +266,7 @@ def clear_user(update, context):
     except:
         update.message.reply_text("用法：/clearser 12345678")
 
-# ===================== 接收文件 =====================
+# ===================== 文件接收与处理 =====================
 def receive_file(update, context):
     if not (is_admin(update.effective_user.id) or is_user_valid(update.effective_user.id)):
         update.message.reply_text("❌ 无使用权限，请先兑换！")
@@ -272,8 +276,8 @@ def receive_file(update, context):
         update.message.reply_text("❌ 仅支持TXT")
         return
     try:
-        f = context.bot.get_file(doc.file_id)
-        f.download("tmp.txt")
+        file = context.bot.get_file(doc.file_id)
+        file.download("tmp.txt")
         with open("tmp.txt", "r", encoding="utf-8") as f:
             lines = [l.rstrip("\n") for l in f if l.strip()]
         os.remove("tmp.txt")
@@ -283,10 +287,9 @@ def receive_file(update, context):
         user_state[uid] = 1
         user_thunder[uid] = []
         update.message.reply_text("是否插入雷号？是 / 否")
-    except:
-        update.message.reply_text("❌ 读取文件失败")
+    except Exception as e:
+        update.message.reply_text(f"❌ 读取文件失败：{str(e)}")
 
-# ===================== 处理文字 =====================
 def handle_text(update, context):
     uid = update.effective_user.id
     if uid not in user_state:
@@ -309,14 +312,15 @@ def handle_text(update, context):
         else:
             user_thunder[uid].append(txt)
 
-# ===================== 分包逻辑 =====================
+# ===================== 分包核心逻辑 =====================
 def do_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
     name = user_filename.pop(uid, "out")
     per = user_split_settings.get(uid, 50)
+    # 修复：不再限制数量，按实际行数分包
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_all(uid, update, context, parts, name)
-    update.message.reply_text("✅ 完成任务了 喵！")
+    update.message.reply_text(f"✅ 我完成任务了 喵！共生成 {len(parts)} 个文件")
     update.message.reply_text(sad_text())
 
 def do_insert_and_split(uid, update, context):
@@ -329,46 +333,62 @@ def do_insert_and_split(uid, update, context):
     for i, p in enumerate(parts):
         new_parts.append(p + [thunders[i % len(thunders)]])
     send_all(uid, update, context, new_parts, name)
-    update.message.reply_text("✅ 报告阿sir完成任务！")
+    update.message.reply_text(f"✅ 报告阿sir 完成任务 共 {len(new_parts)} 个文件")
     update.message.reply_text(sad_text())
 
-# ===================== 【一次发送10个文件 · 最终版】 =====================
+# ===================== 终极修复：TG批量发送10个文件 =====================
 def send_all(uid, update, context, parts, base):
     try:
         chat_id = update.effective_chat.id
-        BATCH_SIZE = 10
+        BATCH_SIZE = 10  # TG一次最多发10个文件
+        total_files = len(parts)
+        sent_count = 0
 
-        for i in range(0, len(parts), BATCH_SIZE):
-            batch_parts = parts[i:i+BATCH_SIZE]
-            files = []
+        # 按10个一批循环发送，覆盖所有文件
+        for batch_start in range(0, total_files, BATCH_SIZE):
+            batch_end = batch_start + BATCH_SIZE
+            current_batch = parts[batch_start:batch_end]
+            media_group = []
+            temp_files = []
 
-            # 先生成这一批所有文件
-            for j, part in enumerate(batch_parts, 1):
-                num = i + j
-                fn = f"{base}_{num}.txt"
+            # 1. 先生成当前批次的所有文件
+            for idx, part in enumerate(current_batch):
+                file_num = batch_start + idx + 1
+                fn = f"{base}_{file_num}.txt"
                 with open(fn, "w", encoding="utf-8") as f:
                     f.write("\n".join(part))
-                files.append(fn)
+                temp_files.append(fn)
+                # 构建批量发送的媒体对象
+                media_group.append(InputMediaDocument(open(fn, "rb"), filename=fn))
 
-            # 再一次性发完这批
-            for fn in files:
-                with open(fn, "rb") as f:
-                    context.bot.send_document(chat_id, f, filename=fn)
+            # 2. 批量发送（一次请求发10个）
+            if media_group:
+                context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                sent_count += len(media_group)
+
+            # 3. 关闭文件并删除临时文件
+            for media in media_group:
+                media.media.close()
+            for fn in temp_files:
                 os.remove(fn)
 
-            time.sleep(1)
+            # 4. 批次间短暂延迟，避免触发风控
+            time.sleep(2)
+
+        update.message.reply_text(f"✅ 全部发送完成！共发送 {sent_count} 个文件")
 
     except Exception as e:
         update.message.reply_text(f"❌ 发送失败：{str(e)}")
 
-# ===================== 机器人自动复活 =====================
+# ===================== 机器人启动 =====================
 def run_bot():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
     while True:
         try:
-            u = Updater(TOKEN, use_context=True)
-            dp = u.dispatcher
+            updater = Updater(TOKEN, use_context=True)
+            dp = updater.dispatcher
 
+            # 注册所有命令
             dp.add_handler(CommandHandler("start", start))
             dp.add_handler(CommandHandler("all", all_users))
             dp.add_handler(CommandHandler("listcard", list_card))
@@ -382,15 +402,17 @@ def run_bot():
             dp.add_handler(CommandHandler("listadmin", list_admin))
             dp.add_handler(CommandHandler("clearser", clear_user))
 
+            # 注册文件和文本处理
             dp.add_handler(MessageHandler(Filters.document, receive_file))
             dp.add_handler(MessageHandler(Filters.text, handle_text))
 
-            u.start_polling(drop_pending_updates=True)
-            u.idle()
-        except:
+            updater.start_polling(drop_pending_updates=True)
+            updater.idle()
+        except Exception as e:
+            print(f"机器人重启：{str(e)}")
             time.sleep(5)
 
-# ===================== 启动 =====================
+# ===================== 主函数 =====================
 def main():
     threading.Thread(target=keep_alive, daemon=True).start()
     threading.Thread(target=run_bot, daemon=True).start()
