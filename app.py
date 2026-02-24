@@ -1,4 +1,4 @@
-# ========== 最终完整可用版（所有管理员功能已补全） ==========
+# ========== 最终完整可用版（所有管理员功能已补全 + 稳定不掉线） ==========
 import os
 import threading
 import time
@@ -14,17 +14,25 @@ def index():
     return "Bot is running"
 
 def run_web_server():
+    # 严格使用 Render 提供的 PORT 环境变量
     port = int(os.environ.get('PORT', 10000))
-    app_web.run(host='0.0.0.0', port=port)
+    app_web.run(host='0.0.0.0', port=port, threaded=True)
 
-# 自动保活
+# 自动保活：改为访问 Render 分配的外部 URL，而不是本地 127.0.0.1
 def keep_alive():
+    # 从环境变量获取 Render 分配的外部地址（Render 会自动注入）
+    RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")
+    if not RENDER_EXTERNAL_URL:
+        # 如果没有外部地址，就用本地兜底
+        RENDER_EXTERNAL_URL = "http://127.0.0.1:10000"
+    
     while True:
         try:
-            requests.get("http://127.0.0.1:10000")
-        except:
+            # 访问自己的服务，防止被判定为闲置
+            requests.get(RENDER_EXTERNAL_URL, timeout=10)
+        except Exception as e:
             pass
-        time.sleep(600)
+        time.sleep(300)  # 5 分钟一次，比 10 分钟更稳
 
 # 修复 imghdr
 class imghdr:
@@ -370,12 +378,17 @@ def send_files_in_batch(uid, update, context, parts, base):
         for x in batch:
             os.remove(x)
 
-# ===================== 启动 =====================
+# ===================== 启动（强化版） =====================
 def main():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+    
+    # 先启动 Web 服务（保活用）
     threading.Thread(target=run_web_server, daemon=True).start()
+    time.sleep(2)  # 等 Web 服务起来
+    # 再启动保活线程
     threading.Thread(target=keep_alive, daemon=True).start()
 
+    # 启动 Telegram Bot（轮询模式，稳定）
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
@@ -392,7 +405,9 @@ def main():
     dp.add_handler(MessageHandler(Filters.document, receive_file))
     dp.add_handler(MessageHandler(Filters.text, handle_text))
 
-    updater.start_polling()
+    # 启动轮询，drop_pending_updates=True 忽略启动前的消息，避免刷屏
+    updater.start_polling(drop_pending_updates=True)
+    print("✅ 机器人已启动（稳定不掉线版）")
     updater.idle()
 
 if __name__ == "__main__":
