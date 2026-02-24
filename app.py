@@ -40,7 +40,7 @@ class imghdr:
         return None
 
 # ===================== 配置信息（请勿修改） =====================
-TOKEN = "8511432045:AAHeOkZ1tgmJZ1pwS2BdkRJl08fb0F9okK8"
+TOKEN = "8511432045:AAEFFnxjFo2yYhHAFMAIxt1-1we5hvGnpGY"
 ROOT_ADMIN = 7793291484
 # ================================================================
 
@@ -424,3 +424,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
