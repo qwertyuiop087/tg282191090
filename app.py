@@ -25,7 +25,7 @@ def keep_alive():
         time.sleep(60)
 
 # ===================== 核心配置（已填好） =====================
-TOKEN = "8511432045:AAFOfPsHMt6cJJ2oSPTQ-2ONRzfBLtt4xjI"
+TOKEN = "8511432045:AAER7jPe363zaV1fTIdzeel9W5sI0HoWZQ8"
 ROOT_ADMIN = 7793291484
 # ============================================================
 
@@ -319,7 +319,7 @@ def do_split(uid, update, context):
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_all(uid, update, context, parts, name)
-    update.message.reply_text(f"✅ 搞好了哦 喵！共生成 {len(parts)} 个文件")
+    update.message.reply_text(f"✅ 我搞完了 喵！共生成 {len(parts)} 个文件")
     update.message.reply_text(sad_text())
 
 def do_insert_and_split(uid, update, context):
