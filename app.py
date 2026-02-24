@@ -25,7 +25,7 @@ def keep_alive():
         time.sleep(60)
 
 # ===================== 核心配置（已填好） =====================
-TOKEN = "8511432045:AAFOfPsHMt6cJJ2oSPTQ-2ONRzfBLtt4xjI"
+TOKEN = "8511432045:AAER7jPe363zaV1fTIdzeel9W5sI0HoWZQ8"
 ROOT_ADMIN = 7793291484
 # ============================================================
 
@@ -420,3 +420,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
