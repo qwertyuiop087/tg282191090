@@ -392,40 +392,42 @@ def do_insert_and_split(uid, update, context):
         parts.append(part)
     
     send_files_in_batch(uid, update, context, parts, name)
-    update.message.reply_text("✅ 报告阿sir~插入雷号+拆分完成！")
+    update.message.reply_text("✅ 插入雷号+拆分完成！报告阿sir~")
     update.message.reply_text(sad_text())
     user_state.pop(uid, None)
 
 def send_files_in_batch(uid, update, context, parts, base):
-    """批量发送文件，避免单次发送过多被限制"""
+    """不分批次，逐个发送文件，避免 send_media_group 的类型错误"""
     if not parts:
         update.message.reply_text("❌ 无文件可发送")
         return
     
     chat_id = update.effective_chat.id
-    batch_size = 5  # 降低批量发送数量，避免Telegram限流
-    for batch_start in range(0, len(parts), batch_size):
-        batch_parts = parts[batch_start:batch_start+batch_size]
-        media = []
-        for i, part in enumerate(batch_parts, batch_start+1):
-            fn = f"{base}_{i}.txt"
+    
+    for i, part in enumerate(parts, 1):
+        fn = f"{base}_{i}.txt"
+        try:
+            # 先生成本地文件
             with open(fn, "w", encoding="utf-8") as f:
                 f.write("\n".join(part))
-            media.append(open(fn, "rb"))
-        
-        # 发送文件组
-        try:
-            context.bot.send_media_group(chat_id, media)
+            
+            # 逐个发送文档，而不是用 send_media_group
+            with open(fn, "rb") as f:
+                context.bot.send_document(
+                    chat_id=chat_id,
+                    document=f,
+                    filename=fn,
+                    caption=f"✅ 第 {i} 包 / 共 {len(parts)} 包"
+                )
+            # 发送成功后删除本地文件
+            os.remove(fn)
+            # 可选：加个极短延迟，避免极端情况被限制
+            time.sleep(0.2)
         except Exception as e:
-            update.message.reply_text(f"⚠️ 发送失败（第{batch_start+1}批）：{str(e)}")
-        finally:
-            # 无论是否发送成功，都删除本地文件
-            for f in media:
-                f.close()
-                os.remove(f.name)
-        
-        # 批量发送间隔，避免限流
-        time.sleep(1)
+            update.message.reply_text(f"⚠️ 第 {i} 包发送失败：{str(e)}")
+            # 失败时也删除文件，避免垃圾文件堆积
+            if os.path.exists(fn):
+                os.remove(fn)
 
 # ===================== 启动逻辑（保持稳定） =====================
 def main():
