@@ -1,22 +1,32 @@
 import os
+import threading
 import time
-import requests
 import random
 import json
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import (
-    Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-)
+from flask import Flask
 
 app = Flask(__name__)
 
-# ===================== 你的信息（已自动填写） =====================
-TOKEN = "8511432045:AAGdvIGG0dU1wWmQ4GMFi_GQTNhrozhXwy4"
+@app.route('/')
+def index():
+    return "Bot is running"
+
+# ===================== Render 保活 15 分钟不掉线 =====================
+def keep_alive():
+    port = os.environ.get("PORT", 10000)
+    url = f"http://127.0.0.1:{port}"
+    while True:
+        try:
+            import requests
+            requests.get(url, timeout=5)
+        except:
+            pass
+        time.sleep(60)
+
+# ===================== 你的信息（自己改这里） =====================
+TOKEN = "8511432045:AAFOfPsHMt6cJJ2oSPTQ-2ONRzfBLtt4xjI"
 ROOT_ADMIN = 7793291484
-# 你只需要保证 Render 域名和这里一致
-WEBHOOK_URL = "https://" + os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") + "/" + TOKEN
-# =================================================================
+# ================================================================
 
 admins = {ROOT_ADMIN}
 user_split_settings = {}
@@ -107,7 +117,7 @@ def sad_text():
     return random.choice(texts)
 
 # ===================== 命令 =====================
-def start(update: Update, context: CallbackContext) -> None:
+def start(update, context):
     if not check_auth(update):
         return
     user_id = update.effective_user.id
@@ -136,7 +146,7 @@ def start(update: Update, context: CallbackContext) -> None:
             "尊敬的用户宝宝 发送txt文件给我使用哦"
         )
 
-def all_users(update: Update, context: CallbackContext) -> None:
+def all_users(update, context):
     if update.effective_user.id != ROOT_ADMIN:
         update.message.reply_text("❌ 无权限")
         return
@@ -153,7 +163,7 @@ def all_users(update: Update, context: CallbackContext) -> None:
             msg.append(f"• {u}：{left//86400}天{left%86400//3600}小时")
     update.message.reply_text("\n".join(msg))
 
-def list_card(update: Update, context: CallbackContext) -> None:
+def list_card(update, context):
     if update.effective_user.id != ROOT_ADMIN:
         update.message.reply_text("❌ 无权限")
         return
@@ -166,7 +176,7 @@ def list_card(update: Update, context: CallbackContext) -> None:
         msg.append(f"• {c} ｜ {info['days']}天 ｜ {s}")
     update.message.reply_text("\n".join(msg))
 
-def del_card(update: Update, context: CallbackContext) -> None:
+def del_card(update, context):
     if update.effective_user.id != ROOT_ADMIN:
         update.message.reply_text("❌ 无权限")
         return
@@ -181,16 +191,16 @@ def del_card(update: Update, context: CallbackContext) -> None:
     else:
         update.message.reply_text("❌ 卡密不存在")
 
-def check_me(update: Update, context: CallbackContext) -> None:
+def check_me(update, context):
     update.message.reply_text(get_user_expire_text(update.effective_user.id))
 
-def redeem(update: Update, context: CallbackContext) -> None:
+def redeem(update, context):
     if not context.args:
         update.message.reply_text("用法：/redeem 卡密")
         return
     update.message.reply_text(redeem_card(update.effective_user.id, context.args[0]))
 
-def create_card(update: Update, context: CallbackContext) -> None:
+def create_card(update, context):
     if not is_admin(update.effective_user.id):
         return
     if not context.args:
@@ -202,7 +212,7 @@ def create_card(update: Update, context: CallbackContext) -> None:
     except:
         update.message.reply_text("❌ 参数错误")
 
-def set_split(update: Update, context: CallbackContext) -> None:
+def set_split(update, context):
     if not check_auth(update):
         return
     try:
@@ -213,7 +223,7 @@ def set_split(update: Update, context: CallbackContext) -> None:
     except:
         update.message.reply_text("用法：/split 50")
 
-def add_admin(update: Update, context: CallbackContext) -> None:
+def add_admin(update, context):
     if update.effective_user.id != ROOT_ADMIN:
         update.message.reply_text("❌ 仅主管理员可用")
         return
@@ -224,7 +234,7 @@ def add_admin(update: Update, context: CallbackContext) -> None:
     except:
         update.message.reply_text("用法：/addadmin 12345678")
 
-def del_admin(update: Update, context: CallbackContext) -> None:
+def del_admin(update, context):
     if update.effective_user.id != ROOT_ADMIN:
         update.message.reply_text("❌ 仅主管理员可用")
         return
@@ -238,13 +248,13 @@ def del_admin(update: Update, context: CallbackContext) -> None:
     except:
         update.message.reply_text("用法：/deladmin 12345678")
 
-def list_admin(update: Update, context: CallbackContext) -> None:
+def list_admin(update, context):
     if not is_admin(update.effective_user.id):
         update.message.reply_text("❌ 无权限")
         return
     update.message.reply_text("👑 管理员：\n" + "\n".join(map(str, admins)))
 
-def clear_user(update: Update, context: CallbackContext) -> None:
+def clear_user(update, context):
     if not is_admin(update.effective_user.id):
         update.message.reply_text("❌ 无权限")
         return
@@ -260,7 +270,7 @@ def clear_user(update: Update, context: CallbackContext) -> None:
         update.message.reply_text("用法：/clearser 12345678")
 
 # ===================== 接收文件 =====================
-def receive_file(update: Update, context: CallbackContext) -> None:
+def receive_file(update, context):
     if not check_auth(update):
         return
     doc = update.message.document
@@ -283,7 +293,7 @@ def receive_file(update: Update, context: CallbackContext) -> None:
         update.message.reply_text("❌ 读取文件失败")
 
 # ===================== 处理文字 =====================
-def handle_text(update: Update, context: CallbackContext) -> None:
+def handle_text(update, context):
     uid = update.effective_user.id
     if uid not in user_state:
         return
@@ -306,7 +316,7 @@ def handle_text(update: Update, context: CallbackContext) -> None:
             user_thunder[uid].append(txt)
 
 # ===================== 分包逻辑 =====================
-def do_split(uid, update: Update, context: CallbackContext):
+def do_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
     name = user_filename.pop(uid, "out")
     per = user_split_settings.get(uid, 50)
@@ -315,7 +325,7 @@ def do_split(uid, update: Update, context: CallbackContext):
     update.message.reply_text("✅ 分包完成！")
     update.message.reply_text(sad_text())
 
-def do_insert_and_split(uid, update: Update, context: CallbackContext):
+def do_insert_and_split(uid, update, context):
     lines = user_file_data.pop(uid, [])
     thunders = user_thunder.pop(uid, [])
     name = user_filename.pop(uid, "out")
@@ -328,10 +338,10 @@ def do_insert_and_split(uid, update: Update, context: CallbackContext):
     update.message.reply_text("✅ 带雷分包完成！")
     update.message.reply_text(sad_text())
 
-# ===================== 每10个发送一次（已修改） =====================
-def send_all(uid, update: Update, context: CallbackContext, parts, base):
+# ===================== 【重点：一次发10个文件，不卡】 =====================
+def send_all(uid, update, context, parts, base):
     try:
-        batch_size = 10
+        batch_size = 10  # 一次发10个
         for i in range(0, len(parts), batch_size):
             batch = parts[i:i+batch_size]
             for j, part in enumerate(batch, 1):
@@ -343,47 +353,43 @@ def send_all(uid, update: Update, context: CallbackContext, parts, base):
                     context.bot.send_document(update.effective_chat.id, f)
                 os.remove(fn)
             time.sleep(1)
-    except:
+    except Exception as e:
         update.message.reply_text("❌ 发送失败")
 
-# ===================== Webhook =====================
-@app.route('/' + TOKEN, methods=['POST'])
-def webhook():
-    try:
-        update = Update.de_json(request.get_json(), bot)
-        dp.process_update(update)
-    except Exception as e:
-        print(e)
-    return "ok"
+# ===================== 机器人自动复活 =====================
+def run_bot():
+    from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+    while True:
+        try:
+            u = Updater(TOKEN, use_context=True)
+            dp = u.dispatcher
 
-@app.route('/')
-def index():
-    return "Bot is running"
+            dp.add_handler(CommandHandler("start", start))
+            dp.add_handler(CommandHandler("all", all_users))
+            dp.add_handler(CommandHandler("listcard", list_card))
+            dp.add_handler(CommandHandler("delcard", del_card))
+            dp.add_handler(CommandHandler("check", check_me))
+            dp.add_handler(CommandHandler("split", set_split))
+            dp.add_handler(CommandHandler("card", create_card))
+            dp.add_handler(CommandHandler("redeem", redeem))
+            dp.add_handler(CommandHandler("addadmin", add_admin))
+            dp.add_handler(CommandHandler("deladmin", del_admin))
+            dp.add_handler(CommandHandler("listadmin", list_admin))
+            dp.add_handler(CommandHandler("clearser", clear_user))
+
+            dp.add_handler(MessageHandler(Filters.document, receive_file))
+            dp.add_handler(MessageHandler(Filters.text, handle_text))
+
+            u.start_polling(drop_pending_updates=True)
+            u.idle()
+        except:
+            time.sleep(5)
 
 # ===================== 启动 =====================
-updater = Updater(TOKEN, use_context=True)
-bot = updater.bot
-dp = updater.dispatcher
-
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("all", all_users))
-dp.add_handler(CommandHandler("listcard", list_card))
-dp.add_handler(CommandHandler("delcard", del_card))
-dp.add_handler(CommandHandler("check", check_me))
-dp.add_handler(CommandHandler("split", set_split))
-dp.add_handler(CommandHandler("card", create_card))
-dp.add_handler(CommandHandler("redeem", redeem))
-dp.add_handler(CommandHandler("addadmin", add_admin))
-dp.add_handler(CommandHandler("deladmin", del_admin))
-dp.add_handler(CommandHandler("listadmin", list_admin))
-dp.add_handler(CommandHandler("clearser", clear_user))
-dp.add_handler(MessageHandler(Filters.document, receive_file))
-dp.add_handler(MessageHandler(Filters.text, handle_text))
-
-try:
-    bot.set_webhook(url=WEBHOOK_URL)
-except:
-    pass
+def main():
+    threading.Thread(target=keep_alive, daemon=True).start()
+    threading.Thread(target=run_bot, daemon=True).start()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    main()
