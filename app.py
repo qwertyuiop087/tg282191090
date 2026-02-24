@@ -138,14 +138,15 @@ def start(update, context):
 
     update.message.reply_text(
         "👑【管理员后台】\n\n" if is_admin(uid) else "✅【大晴机器人】\n\n"
-        + ("/all  查看所有用户\n"
+        + ("/all        查看所有用户\n"
            "/addadmin ID    添加管理员\n"
            "/deladmin ID    删除管理员\n"
            "/listadmin      查看管理员\n"
            "/clearser ID    清空用户有效期\n"
+           "/addtime ID 天数 给用户加时间\n"
            if is_admin(uid) else "")
-        + "/check 查自己\n"
-        + "/split  设置单包数量\n"
+        + "/check     查自己\n"
+        + "/split     设置单包数量\n"
         + "/card 天数 生成卡密\n"
         + "/redeem 卡密 兑换\n"
         + ("尊敬的管理员大大😗" if is_admin(uid) else "发送txt文件即可使用")
@@ -244,6 +245,26 @@ def clear_user(update, context):
             update.message.reply_text("❌ 用户不存在")
     except:
         update.message.reply_text("用法：/clearser 用户ID")
+
+# ===================== 新增：给用户ID增加时间 =====================
+def add_time_to_user(update, context):
+    if update.effective_user.id != ROOT_ADMIN:
+        update.message.reply_text("❌ 仅主管理员可用")
+        return
+    try:
+        target_uid = str(context.args[0])
+        days = int(context.args[1])
+        if days <= 0:
+            update.message.reply_text("❌ 天数必须大于0")
+            return
+        now = time.time()
+        old_exp = user_data.get(target_uid, {}).get("expire", now)
+        new_exp = max(old_exp, now) + days * 86400
+        user_data[target_uid] = {"expire": new_exp}
+        save_data(DATA_FILE, user_data)
+        update.message.reply_text(f"✅ 成功给用户 {target_uid} 增加 {days} 天有效期！")
+    except:
+        update.message.reply_text("用法：/addtime 用户ID 天数")
 
 # ===================== 核心文件处理 =====================
 def receive_file(update, context):
@@ -388,7 +409,8 @@ def main():
         CommandHandler("addadmin", add_admin),
         CommandHandler("deladmin", del_admin),
         CommandHandler("listadmin", list_admin),
-        CommandHandler("clearser", clear_user)
+        CommandHandler("clearser", clear_user),
+        CommandHandler("addtime", add_time_to_user),
     ]
     for h in cmd_handlers:
         dp.add_handler(h)
@@ -397,7 +419,7 @@ def main():
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
 
     updater.start_polling(drop_pending_updates=True, timeout=30, read_latency=2)
-    print("✅ 机器人启动成功（已修复：1文件1雷号循环）")
+    print("✅ 机器人启动成功（已修复：1文件1雷号循环 + addtime加时）")
     updater.idle()
 
 if __name__ == "__main__":
