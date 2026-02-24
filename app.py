@@ -319,7 +319,7 @@ def do_split(uid, update, context):
     per = user_split_settings.get(uid, 50)
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
     send_all(uid, update, context, parts, name)
-    update.message.reply_text(f"✅ 完成了哦 喵！共生成 {len(parts)} 个文件")
+    update.message.reply_text(f"✅ 搞好了哦 喵！共生成 {len(parts)} 个文件")
     update.message.reply_text(sad_text())
 
 def do_insert_and_split(uid, update, context):
@@ -335,7 +335,7 @@ def do_insert_and_split(uid, update, context):
     update.message.reply_text(f"✅ 报告阿sir完成任务！共生成 {len(new_parts)} 个文件")
     update.message.reply_text(sad_text())
 
-# ===================== 终极修复：10个一批发送，绝不报错 =====================
+# ===================== 修复发送失败：正确管理文件句柄 =====================
 def send_all(uid, update, context, parts, base):
     try:
         chat_id = update.effective_chat.id
@@ -345,6 +345,7 @@ def send_all(uid, update, context, parts, base):
         for i in range(0, total, BATCH_SIZE):
             current = parts[i:i+BATCH_SIZE]
             files = []
+            open_files = []  # 保存我们自己打开的文件句柄
 
             # 生成文件
             for j, p in enumerate(current):
@@ -354,19 +355,25 @@ def send_all(uid, update, context, parts, base):
                     f.write("\n".join(p))
                 files.append(fname)
 
-            # 构造媒体组
+            # 构造媒体组，同时保存文件句柄
             media = []
             for f in files:
-                media.append(InputMediaDocument(open(f, "rb"), filename=f))
+                file_handle = open(f, "rb")
+                open_files.append(file_handle)
+                media.append(InputMediaDocument(file_handle, filename=f))
 
             # 发送
             context.bot.send_media_group(chat_id=chat_id, media=media)
 
-            # 关闭并删除
-            for m in media:
-                m.media.close()
+            # 关闭我们自己打开的文件句柄
+            for f in open_files:
+                if not f.closed:
+                    f.close()
+            
+            # 删除临时文件
             for f in files:
-                os.remove(f)
+                if os.path.exists(f):
+                    os.remove(f)
 
             time.sleep(2)
 
@@ -375,11 +382,14 @@ def send_all(uid, update, context, parts, base):
     except Exception as e:
         update.message.reply_text(f"❌ 发送失败：{str(e)}")
         # 出错也清理
+        for f in open_files:
+            if not f.closed:
+                f.close()
         for f in files:
             if os.path.exists(f):
                 os.remove(f)
 
-# ===================== 机器人启动 =====================
+# ===================== 修复重复回复：使用 run_async =====================
 def run_bot():
     from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
     while True:
@@ -387,6 +397,7 @@ def run_bot():
             updater = Updater(TOKEN, use_context=True)
             dp = updater.dispatcher
 
+            # 注册所有命令
             dp.add_handler(CommandHandler("start", start))
             dp.add_handler(CommandHandler("all", all_users))
             dp.add_handler(CommandHandler("listcard", list_card))
@@ -400,12 +411,14 @@ def run_bot():
             dp.add_handler(CommandHandler("listadmin", list_admin))
             dp.add_handler(CommandHandler("clearser", clear_user))
 
-            dp.add_handler(MessageHandler(Filters.document, receive_file))
-            dp.add_handler(MessageHandler(Filters.text, handle_text))
+            # 注册文件和文本处理，使用 run_async=True 避免阻塞导致重复触发
+            dp.add_handler(MessageHandler(Filters.document, receive_file, run_async=True))
+            dp.add_handler(MessageHandler(Filters.text, handle_text, run_async=True))
 
             updater.start_polling(drop_pending_updates=True)
             updater.idle()
-        except:
+        except Exception as e:
+            print(f"机器人重启：{str(e)}")
             time.sleep(5)
 
 # ===================== 主函数 =====================
