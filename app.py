@@ -3,6 +3,8 @@ import threading
 import time
 import requests
 import json
+import random
+import asyncio
 from flask import Flask
 from telegram import InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
@@ -392,4 +394,31 @@ async def do_process(uid, update, context, insert_thunder):
 def main():
     # 启动保活服务
     threading.Thread(target=run_web_server, daemon=True).start()
-    time.sleep(
+    time.sleep(2)
+    threading.Thread(target=keep_alive, daemon=True).start()
+
+    # 启动 Telegram 机器人
+    application = Application.builder().token(TOKEN).build()
+
+    # 注册命令处理器
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("all", all_users))
+    application.add_handler(CommandHandler("check", check_me))
+    application.add_handler(CommandHandler("split", set_split))
+    application.add_handler(CommandHandler("card", create_card))
+    application.add_handler(CommandHandler("redeem", redeem))
+    application.add_handler(CommandHandler("addadmin", add_admin))
+    application.add_handler(CommandHandler("deladmin", del_admin))
+    application.add_handler(CommandHandler("listadmin", list_admin))
+    application.add_handler(CommandHandler("clearser", clear_user))
+    application.add_handler(CommandHandler("addtime", add_time_to_user))
+
+    # 注册文件和文本处理器
+    application.add_handler(MessageHandler(filters.Document.ALL, receive_file))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    # 启动机器人
+    application.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
