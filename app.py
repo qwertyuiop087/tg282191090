@@ -5,7 +5,7 @@ import requests
 import json
 import random
 from flask import Flask
-from telegram import InputFile
+from telegram import InputMediaDocument
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.error import RetryAfter, TimedOut
 
@@ -324,19 +324,57 @@ def handle_text(update, context):
             user_thunder[uid].extend(lines)
             update.message.reply_text(f"✅ 已收录雷号：{len(user_thunder[uid])}个")
 
-# ===================== 核心处理：极速无延时发送 =====================
+# ===================== 发送：一次10个文件（媒体组） =====================
+def send_10_in_one_group(chat_id, context, parts, base_name):
+    total_parts = len(parts)
+    for batch_start in range(0, total_parts, 10):
+        batch_parts = parts[batch_start:batch_start+10]
+        media_group = []
+        temp_files = []
+        for idx, part in enumerate(batch_parts):
+            file_num = batch_start + idx + 1
+            file_name = f"{base_name}_{file_num}.txt"
+            with open(file_name, "w", encoding="utf-8") as f:
+                f.write("\n".join(part))
+            temp_files.append(file_name)
+            with open(file_name, "rb") as f:
+                media = InputMediaDocument(media=f, filename=file_name)
+                media_group.append(media)
+        try:
+            context.bot.send_media_group(chat_id=chat_id, media=media_group)
+            print(f"✅ 成功发送批次 {batch_start//10 + 1}，共 {len(media_group)} 个文件")
+        except RetryAfter as e:
+            # 捕获限流，等待并重试
+            wait_time = e.retry_after + 1
+            print(f"⚠️ 触发限流，等待 {wait_time} 秒后重试批次 {batch_start//10 + 1}")
+            time.sleep(wait_time)
+            try:
+                context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                print(f"✅ 重试后成功发送批次 {batch_start//10 + 1}")
+            except Exception as e2:
+                print(f"❌ 批次 {batch_start//10 + 1} 发送失败：{str(e2)}")
+        except Exception as e:
+            print(f"❌ 批次 {batch_start//10 + 1} 发送失败：{str(e)}")
+        finally:
+            for f in temp_files:
+                if os.path.exists(f):
+                    os.remove(f)
+        # 批次间增加 3 秒间隔，避免连续触发限流
+        time.sleep(3)
+
+# ===================== 核心处理 =====================
 def do_process(uid, update, context, insert_thunder):
     lines = user_file_data.pop(uid, [])
     base_name = user_filename.pop(uid, "output")
     per = user_split_settings.get(uid, 50)
     thunders = user_thunder.pop(uid, []) if insert_thunder else []
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
-
+    
     if not parts:
         update.message.reply_text("❌ 无数据可拆分")
         user_state.pop(uid, None)
         return
-
+    
     if insert_thunder and thunders:
         new_parts = []
         for i, p in enumerate(parts):
@@ -346,79 +384,37 @@ def do_process(uid, update, context, insert_thunder):
         parts = new_parts
 
     total = len(parts)
-    update.message.reply_text(f"🚀 开始极速发送，共 {total} 个文件...")
-
-    success_count = 0
-    for index, part in enumerate(parts):
-        file_num = index + 1
-        file_name = f"{base_name}_{file_num}.txt"
-
-        try:
-            # 写入文件
-            with open(file_name, "w", encoding="utf-8") as f:
-                f.write("\n".join(part))
-
-            # 直接发送单个文件，无额外延时
-            with open(file_name, "rb") as f:
-                context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=f,
-                    filename=file_name
-                )
-
-            success_count += 1
-            os.remove(file_name)
-
-        except RetryAfter as e:
-            # 遇到限流时等待并重试
-            update.message.reply_text(f"⚠️ 触发限流，等待 {e.retry_after} 秒...")
-            time.sleep(e.retry_after + 0.3)
-            try:
-                with open(file_name, "rb") as f:
-                    context.bot.send_document(chat_id=update.effective_chat.id, document=f, filename=file_name)
-                success_count += 1
-                os.remove(file_name)
-            except:
-                update.message.reply_text(f"❌ 第 {file_num} 个文件发送失败")
-
-        except Exception as e:
-            update.message.reply_text(f"⚠️ 第 {file_num} 个文件：{str(e)}")
-
-    # 全部完成
-    update.message.reply_text(f"✅ 全部发送完成！成功 {success_count}/{total}\n{sad_text()}")
+    update.message.reply_text(f"🚀 开始发送，共 {total} 个文件，每批10个...")
+    send_10_in_one_group(update.effective_chat.id, context, parts, base_name)
+    update.message.reply_text(f"✅ 全部处理完成！共{len(parts)}个文件\n{sad_text()}")
     user_state.pop(uid, None)
 
-# ===================== 启动机器人 =====================
+# ===================== 启动 =====================
 def main():
-    # 启动保活服务
     threading.Thread(target=run_web_server, daemon=True).start()
     time.sleep(2)
     threading.Thread(target=keep_alive, daemon=True).start()
-
-    # 启动 Telegram 机器人（旧版 Updater）
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
-
-    # 注册命令处理器
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("all", all_users))
-    dp.add_handler(CommandHandler("check", check_me))
-    dp.add_handler(CommandHandler("split", set_split))
-    dp.add_handler(CommandHandler("card", create_card))
-    dp.add_handler(CommandHandler("redeem", redeem))
-    dp.add_handler(CommandHandler("addadmin", add_admin))
-    dp.add_handler(CommandHandler("deladmin", del_admin))
-    dp.add_handler(CommandHandler("listadmin", list_admin))
-    dp.add_handler(CommandHandler("clearser", clear_user))
-    dp.add_handler(CommandHandler("addtime", add_time_to_user))
-
-    # 注册文件和文本处理器
+    cmd_handlers = [
+        CommandHandler("start", start),
+        CommandHandler("all", all_users),
+        CommandHandler("check", check_me),
+        CommandHandler("split", set_split),
+        CommandHandler("card", create_card),
+        CommandHandler("redeem", redeem),
+        CommandHandler("addadmin", add_admin),
+        CommandHandler("deladmin", del_admin),
+        CommandHandler("listadmin", list_admin),
+        CommandHandler("clearser", clear_user),
+        CommandHandler("addtime", add_time_to_user),
+    ]
+    for h in cmd_handlers:
+        dp.add_handler(h)
     dp.add_handler(MessageHandler(Filters.document, receive_file))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-
-    # 启动轮询
-    updater.start_polling(drop_pending_updates=True)
-    print("✅ 机器人启动成功（极速无延时版，兼容旧版 python-telegram-bot）")
+    updater.start_polling(drop_pending_updates=True, timeout=30, read_latency=2)
+    print("✅ 机器人启动成功（一次10个文件 + 智能限流版）")
     updater.idle()
 
 if __name__ == "__main__":
