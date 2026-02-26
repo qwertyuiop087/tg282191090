@@ -325,19 +325,19 @@ async def handle_text(update, context):
             user_thunder[uid].extend(lines)
             await update.message.reply_text(f"✅ 已收录雷号：{len(user_thunder[uid])}个")
 
-# ===================== 核心处理：极速异步发送 =====================
+# ===================== 核心处理：极速异步发送（已优化无延时） =====================
 async def do_process(uid, update, context, insert_thunder):
     lines = user_file_data.pop(uid, [])
     base_name = user_filename.pop(uid, "output")
     per = user_split_settings.get(uid, 50)
     thunders = user_thunder.pop(uid, []) if insert_thunder else []
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
-    
+
     if not parts:
         await update.message.reply_text("❌ 无数据可拆分")
         user_state.pop(uid, None)
         return
-    
+
     if insert_thunder and thunders:
         new_parts = []
         for i, p in enumerate(parts):
@@ -348,34 +348,32 @@ async def do_process(uid, update, context, insert_thunder):
 
     total = len(parts)
     await update.message.reply_text(f"🚀 开始极速发送，共 {total} 个文件...")
-    
-    # 极限模式：无延时异步发送
+
     success_count = 0
     for index, part in enumerate(parts):
         file_num = index + 1
         file_name = f"{base_name}_{file_num}.txt"
-        
+
         try:
             # 写入文件
             with open(file_name, "w", encoding="utf-8") as f:
                 f.write("\n".join(part))
-            
-            # 直接发送单个文件，绕过媒体组限制
+
+            # 纯异步全速发送，不加任何 sleep
             with open(file_name, "rb") as f:
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
                     document=InputFile(f),
                     filename=file_name
                 )
-            
+
             success_count += 1
             os.remove(file_name)
-            
+
         except RetryAfter as e:
-            # 遇到限流强制等待
+            # 只在触发限流时等待，其余全速发
             await update.message.reply_text(f"⚠️ 触发限流，等待 {e.retry_after} 秒...")
-            await asyncio.sleep(e.retry_after + 0.5)
-            # 重试
+            await asyncio.sleep(e.retry_after + 0.3)
             try:
                 with open(file_name, "rb") as f:
                     await context.bot.send_document(chat_id=update.effective_chat.id, document=InputFile(f), filename=file_name)
@@ -383,42 +381,15 @@ async def do_process(uid, update, context, insert_thunder):
                 os.remove(file_name)
             except:
                 await update.message.reply_text(f"❌ 第 {file_num} 个文件发送失败")
+
         except Exception as e:
-            await update.message.reply_text(f"⚠️ 第 {file_num} 个文件异常：{str(e)}")
-    
-    # 最终完成通知
-    await update.message.reply_text(f"✅ 全部发送完成！成功接收 {success_count}/{total} 个文件\n{sad_text()}")
+            # 其他错误仅上报，不中断流程
+            await update.message.reply_text(f"⚠️ 第 {file_num} 个文件：{str(e)}")
+
+    # 全部完成
+    await update.message.reply_text(f"✅ 全部发送完成！成功 {success_count}/{total}\n{sad_text()}")
     user_state.pop(uid, None)
 
-# ===================== 启动主程序 =====================
+# ===================== 启动机器人 =====================
 def main():
-    # 启动保活服务
-    threading.Thread(target=run_web_server, daemon=True).start()
-    time.sleep(2)
-    threading.Thread(target=keep_alive, daemon=True).start()
-
-    # 启动 Telegram 机器人
-    application = Application.builder().token(TOKEN).build()
-
-    # 注册命令处理器
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("all", all_users))
-    application.add_handler(CommandHandler("check", check_me))
-    application.add_handler(CommandHandler("split", set_split))
-    application.add_handler(CommandHandler("card", create_card))
-    application.add_handler(CommandHandler("redeem", redeem))
-    application.add_handler(CommandHandler("addadmin", add_admin))
-    application.add_handler(CommandHandler("deladmin", del_admin))
-    application.add_handler(CommandHandler("listadmin", list_admin))
-    application.add_handler(CommandHandler("clearser", clear_user))
-    application.add_handler(CommandHandler("addtime", add_time_to_user))
-
-    # 注册文件和文本处理器
-    application.add_handler(MessageHandler(filters.Document.ALL, receive_file))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    # 启动机器人
-    application.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
-    main()
+    threading.Thread
