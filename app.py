@@ -4,10 +4,9 @@ import time
 import requests
 import json
 import random
-import asyncio
 from flask import Flask
 from telegram import InputFile
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.error import RetryAfter, TimedOut
 
 app_web = Flask(__name__)
@@ -133,13 +132,13 @@ def sad_text():
     ])
 
 # ===================== 命令处理 =====================
-async def start(update, context):
+def start(update, context):
     uid = update.effective_user.id
     for k in [user_state, user_file_data, user_thunder, user_filename]:
         k.pop(uid, None)
     if not check_auth(update):
         return
-    await update.message.reply_text(
+    update.message.reply_text(
         "👑【管理员后台】\n\n" if is_admin(uid) else "✅【大晴机器人】\n\n"
         + ("/all        查看所有用户\n"
            "/addadmin ID    添加管理员\n"
@@ -155,149 +154,149 @@ async def start(update, context):
         + ("尊敬的管理员大大😗" if is_admin(uid) else "发送txt文件即可使用")
     )
 
-async def all_users(update, context):
+def all_users(update, context):
     if update.effective_user.id != ROOT_ADMIN:
-        await update.message.reply_text("❌ 仅主管理员可用")
+        update.message.reply_text("❌ 仅主管理员可用")
         return
     if not user_data:
-        await update.message.reply_text("暂无用户")
+        update.message.reply_text("暂无用户")
         return
     msg = ["所有用户："]
     now = time.time()
     for uid, data in user_data.items():
         left = int(data["expire"] - now)
         msg.append(f"• {uid}：{'已过期' if left<=0 else f'{left//86400}天'}")
-    await update.message.reply_text("\n".join(msg))
+    update.message.reply_text("\n".join(msg))
 
-async def check_me(update, context):
+def check_me(update, context):
     if check_auth(update):
-        await update.message.reply_text(get_user_expire_text(update.effective_user.id))
+        update.message.reply_text(get_user_expire_text(update.effective_user.id))
 
-async def redeem(update, context):
+def redeem(update, context):
     if not context.args:
-        await update.message.reply_text("用法：/redeem 卡密")
+        update.message.reply_text("用法：/redeem 卡密")
         return
-    await update.message.reply_text(redeem_card(update.effective_user.id, context.args[0]))
+    update.message.reply_text(redeem_card(update.effective_user.id, context.args[0]))
 
-async def create_card(update, context):
+def create_card(update, context):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ 无权限")
+        update.message.reply_text("❌ 无权限")
         return
     try:
         days = int(context.args[0])
         if days <= 0:
             raise ValueError
         card = generate_card(days)
-        await update.message.reply_text(f"✅ 卡密：\n{card}\n天数：{days}")
+        update.message.reply_text(f"✅ 卡密：\n{card}\n天数：{days}")
     except:
-        await update.message.reply_text("用法：/card 正整数天数")
+        update.message.reply_text("用法：/card 正整数天数")
 
-async def set_split(update, context):
+def set_split(update, context):
     if not check_auth(update):
         return
     try:
         n = int(context.args[0])
         if n > 0:
             user_split_settings[update.effective_user.id] = n
-            await update.message.reply_text(f"✅ 单包数量设为：{n}行")
+            update.message.reply_text(f"✅ 单包数量设为：{n}行")
         else:
-            await update.message.reply_text("❌ 必须大于0")
+            update.message.reply_text("❌ 必须大于0")
     except:
-        await update.message.reply_text("用法：/split 50")
+        update.message.reply_text("用法：/split 50")
 
-async def add_admin(update, context):
+def add_admin(update, context):
     if update.effective_user.id != ROOT_ADMIN:
-        await update.message.reply_text("❌ 仅主管理员可用")
+        update.message.reply_text("❌ 仅主管理员可用")
         return
     try:
         admins.add(int(context.args[0]))
-        await update.message.reply_text(f"✅ 已添加管理员")
+        update.message.reply_text(f"✅ 已添加管理员")
     except:
-        await update.message.reply_text("用法：/addadmin 用户ID")
+        update.message.reply_text("用法：/addadmin 用户ID")
 
-async def del_admin(update, context):
+def del_admin(update, context):
     if update.effective_user.id != ROOT_ADMIN:
-        await update.message.reply_text("❌ 仅主管理员可用")
+        update.message.reply_text("❌ 仅主管理员可用")
         return
     try:
         target = int(context.args[0])
         if target in admins:
             admins.remove(target)
-            await update.message.reply_text(f"✅ 已删除管理员")
+            update.message.reply_text(f"✅ 已删除管理员")
         else:
-            await update.message.reply_text("❌ 该用户不是管理员")
+            update.message.reply_text("❌ 该用户不是管理员")
     except:
-        await update.message.reply_text("用法：/deladmin 用户ID")
+        update.message.reply_text("用法：/deladmin 用户ID")
 
-async def list_admin(update, context):
+def list_admin(update, context):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ 无权限")
+        update.message.reply_text("❌ 无权限")
         return
-    await update.message.reply_text("👑 管理员列表：\n" + "\n".join([f"• {a}" for a in admins]))
+    update.message.reply_text("👑 管理员列表：\n" + "\n".join([f"• {a}" for a in admins]))
 
-async def clear_user(update, context):
+def clear_user(update, context):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ 无权限")
+        update.message.reply_text("❌ 无权限")
         return
     try:
         uid = str(context.args[0])
         if uid in user_data:
             del user_data[uid]
             save_data(DATA_FILE, user_data)
-            await update.message.reply_text(f"✅ 已清空用户 {uid} 有效期")
+            update.message.reply_text(f"✅ 已清空用户 {uid} 有效期")
         else:
-            await update.message.reply_text("❌ 用户不存在")
+            update.message.reply_text("❌ 用户不存在")
     except:
-        await update.message.reply_text("用法：/clearser 用户ID")
+        update.message.reply_text("用法：/clearser 用户ID")
 
-async def add_time_to_user(update, context):
+def add_time_to_user(update, context):
     if update.effective_user.id != ROOT_ADMIN:
-        await update.message.reply_text("❌ 仅主管理员可用")
+        update.message.reply_text("❌ 仅主管理员可用")
         return
     try:
         target_uid = str(context.args[0])
         days = int(context.args[1])
         if days <= 0:
-            await update.message.reply_text("❌ 天数必须大于0")
+            update.message.reply_text("❌ 天数必须大于0")
             return
         now = time.time()
         old_exp = user_data.get(target_uid, {}).get("expire", now)
         new_exp = max(old_exp, now) + days * 86400
         user_data[target_uid] = {"expire": new_exp}
         save_data(DATA_FILE, user_data)
-        await update.message.reply_text(f"✅ 成功给用户 {target_uid} 增加 {days} 天有效期！")
+        update.message.reply_text(f"✅ 成功给用户 {target_uid} 增加 {days} 天有效期！")
     except:
-        await update.message.reply_text("用法：/addtime 用户ID 天数")
+        update.message.reply_text("用法：/addtime 用户ID 天数")
 
 # ===================== 文件接收 =====================
-async def receive_file(update, context):
+def receive_file(update, context):
     if not check_auth(update):
         return
     doc = update.message.document
     if not doc or not doc.file_name.endswith(".txt"):
-        await update.message.reply_text("❌ 仅支持TXT文件")
+        update.message.reply_text("❌ 仅支持TXT文件")
         return
     uid = update.effective_user.id
     user_state.pop(uid, None)
     user_file_data.pop(uid, None)
     try:
-        file = await context.bot.get_file(doc.file_id)
-        await file.download_to_drive("temp.txt")
+        file = context.bot.get_file(doc.file_id)
+        file.download("temp.txt")
         with open("temp.txt", "r", encoding="utf-8") as f:
             lines = [l.strip() for l in f if l.strip()]
         os.remove("temp.txt")
         if not lines:
-            await update.message.reply_text("❌ 文件内容为空")
+            update.message.reply_text("❌ 文件内容为空")
             return
         user_file_data[uid] = lines
         user_filename[uid] = os.path.splitext(doc.file_name)[0]
         user_state[uid] = 1
-        await update.message.reply_text("是否插入雷号？是 / 否")
+        update.message.reply_text("是否插入雷号？是 / 否")
     except Exception as e:
-        await update.message.reply_text(f"❌ 文件处理失败：{str(e)}")
+        update.message.reply_text(f"❌ 文件处理失败：{str(e)}")
 
 # ===================== 处理文本 =====================
-async def handle_text(update, context):
+def handle_text(update, context):
     if not check_auth(update):
         return
     uid = update.effective_user.id
@@ -307,26 +306,26 @@ async def handle_text(update, context):
     txt = update.message.text.strip()
     if state == 1:
         if txt == "否":
-            await do_process(uid, update, context, insert_thunder=False)
+            do_process(uid, update, context, insert_thunder=False)
         elif txt == "是":
             user_state[uid] = 2
             user_thunder[uid] = []
-            await update.message.reply_text("请发送雷号（一行一个），完成后发送：完成")
+            update.message.reply_text("请发送雷号（一行一个），完成后发送：完成")
         else:
-            await update.message.reply_text("⚠️ 请回复“是”或“否”")
+            update.message.reply_text("⚠️ 请回复“是”或“否”")
     elif state == 2:
         if txt == "完成":
             if not user_thunder[uid]:
-                await update.message.reply_text("❌ 未收到雷号，请重新发送或回复“否”")
+                update.message.reply_text("❌ 未收到雷号，请重新发送或回复“否”")
                 return
-            await do_process(uid, update, context, insert_thunder=True)
+            do_process(uid, update, context, insert_thunder=True)
         else:
             lines = [line.strip() for line in txt.splitlines() if line.strip()]
             user_thunder[uid].extend(lines)
-            await update.message.reply_text(f"✅ 已收录雷号：{len(user_thunder[uid])}个")
+            update.message.reply_text(f"✅ 已收录雷号：{len(user_thunder[uid])}个")
 
-# ===================== 核心处理：极速异步发送（已优化无延时） =====================
-async def do_process(uid, update, context, insert_thunder):
+# ===================== 核心处理：极速无延时发送 =====================
+def do_process(uid, update, context, insert_thunder):
     lines = user_file_data.pop(uid, [])
     base_name = user_filename.pop(uid, "output")
     per = user_split_settings.get(uid, 50)
@@ -334,7 +333,7 @@ async def do_process(uid, update, context, insert_thunder):
     parts = [lines[i:i+per] for i in range(0, len(lines), per)]
 
     if not parts:
-        await update.message.reply_text("❌ 无数据可拆分")
+        update.message.reply_text("❌ 无数据可拆分")
         user_state.pop(uid, None)
         return
 
@@ -347,7 +346,7 @@ async def do_process(uid, update, context, insert_thunder):
         parts = new_parts
 
     total = len(parts)
-    await update.message.reply_text(f"🚀 开始极速发送，共 {total} 个文件...")
+    update.message.reply_text(f"🚀 开始极速发送，共 {total} 个文件...")
 
     success_count = 0
     for index, part in enumerate(parts):
@@ -359,11 +358,11 @@ async def do_process(uid, update, context, insert_thunder):
             with open(file_name, "w", encoding="utf-8") as f:
                 f.write("\n".join(part))
 
-            # 纯异步全速发送，不加任何 sleep
+            # 直接发送单个文件，无额外延时
             with open(file_name, "rb") as f:
-                await context.bot.send_document(
+                context.bot.send_document(
                     chat_id=update.effective_chat.id,
-                    document=InputFile(f),
+                    document=f,
                     filename=file_name
                 )
 
@@ -371,25 +370,56 @@ async def do_process(uid, update, context, insert_thunder):
             os.remove(file_name)
 
         except RetryAfter as e:
-            # 只在触发限流时等待，其余全速发
-            await update.message.reply_text(f"⚠️ 触发限流，等待 {e.retry_after} 秒...")
-            await asyncio.sleep(e.retry_after + 0.3)
+            # 遇到限流时等待并重试
+            update.message.reply_text(f"⚠️ 触发限流，等待 {e.retry_after} 秒...")
+            time.sleep(e.retry_after + 0.3)
             try:
                 with open(file_name, "rb") as f:
-                    await context.bot.send_document(chat_id=update.effective_chat.id, document=InputFile(f), filename=file_name)
+                    context.bot.send_document(chat_id=update.effective_chat.id, document=f, filename=file_name)
                 success_count += 1
                 os.remove(file_name)
             except:
-                await update.message.reply_text(f"❌ 第 {file_num} 个文件发送失败")
+                update.message.reply_text(f"❌ 第 {file_num} 个文件发送失败")
 
         except Exception as e:
-            # 其他错误仅上报，不中断流程
-            await update.message.reply_text(f"⚠️ 第 {file_num} 个文件：{str(e)}")
+            update.message.reply_text(f"⚠️ 第 {file_num} 个文件：{str(e)}")
 
     # 全部完成
-    await update.message.reply_text(f"✅ 全部发送完成！成功 {success_count}/{total}\n{sad_text()}")
+    update.message.reply_text(f"✅ 全部发送完成！成功 {success_count}/{total}\n{sad_text()}")
     user_state.pop(uid, None)
 
 # ===================== 启动机器人 =====================
 def main():
-    threading.Thread
+    # 启动保活服务
+    threading.Thread(target=run_web_server, daemon=True).start()
+    time.sleep(2)
+    threading.Thread(target=keep_alive, daemon=True).start()
+
+    # 启动 Telegram 机器人（旧版 Updater）
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    # 注册命令处理器
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("all", all_users))
+    dp.add_handler(CommandHandler("check", check_me))
+    dp.add_handler(CommandHandler("split", set_split))
+    dp.add_handler(CommandHandler("card", create_card))
+    dp.add_handler(CommandHandler("redeem", redeem))
+    dp.add_handler(CommandHandler("addadmin", add_admin))
+    dp.add_handler(CommandHandler("deladmin", del_admin))
+    dp.add_handler(CommandHandler("listadmin", list_admin))
+    dp.add_handler(CommandHandler("clearser", clear_user))
+    dp.add_handler(CommandHandler("addtime", add_time_to_user))
+
+    # 注册文件和文本处理器
+    dp.add_handler(MessageHandler(Filters.document, receive_file))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+
+    # 启动轮询
+    updater.start_polling(drop_pending_updates=True)
+    print("✅ 机器人启动成功（极速无延时版，兼容旧版 python-telegram-bot）")
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
