@@ -4,6 +4,7 @@ import time
 import requests
 import json
 import random
+import zipfile
 from flask import Flask
 from telegram import InputMediaDocument
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
@@ -151,7 +152,7 @@ def start(update, context):
         + "/split     设置单包数量\n"
         + "/card 天数 生成卡密\n"
         + "/redeem 卡密 兑换\n"
-        + ("尊敬的管理员大大😗" if is_admin(uid) else "发送txt文件即可使用")
+        + "发送 txt 或 zip 压缩包即可使用"
     )
 
 def all_users(update, context):
@@ -268,30 +269,62 @@ def add_time_to_user(update, context):
     except:
         update.message.reply_text("用法：/addtime 用户ID 天数")
 
-# ===================== 文件接收 =====================
+# ===================== 处理 ZIP + 多TXT 合并 =====================
+def extract_zip_and_merge(zip_path):
+    all_lines = []
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            txt_files = [f for f in zf.namelist() if f.lower().endswith('.txt') and not f.startswith('__MACOSX')]
+            for fname in txt_files:
+                try:
+                    with zf.open(fname) as f:
+                        content = f.read().decode('utf-8', errors='ignore')
+                    lines = [l.strip() for l in content.splitlines() if l.strip()]
+                    all_lines.extend(lines)
+                except:
+                    continue
+    except:
+        return []
+    return all_lines
+
+# ===================== 文件接收（支持 TXT + ZIP） =====================
 def receive_file(update, context):
     if not check_auth(update):
         return
     doc = update.message.document
-    if not doc or not doc.file_name.endswith(".txt"):
-        update.message.reply_text("❌ 仅支持TXT文件")
+    fname = doc.file_name.lower()
+
+    if not (fname.endswith('.txt') or fname.endswith('.zip')):
+        update.message.reply_text("❌ 仅支持 TXT 或 ZIP 压缩包")
         return
+
     uid = update.effective_user.id
     user_state.pop(uid, None)
     user_file_data.pop(uid, None)
+
     try:
         file = context.bot.get_file(doc.file_id)
-        file.download("temp.txt")
-        with open("temp.txt", "r", encoding="utf-8") as f:
-            lines = [l.strip() for l in f if l.strip()]
-        os.remove("temp.txt")
+        file.download("temp_file")
+        lines = []
+
+        if fname.endswith('.txt'):
+            with open("temp_file", "r", encoding="utf-8") as f:
+                lines = [l.strip() for l in f if l.strip()]
+
+        elif fname.endswith('.zip'):
+            lines = extract_zip_and_merge("temp_file")
+
+        os.remove("temp_file")
+
         if not lines:
-            update.message.reply_text("❌ 文件内容为空")
+            update.message.reply_text("❌ 文件内容为空 或 压缩包内无有效TXT")
             return
+
         user_file_data[uid] = lines
         user_filename[uid] = os.path.splitext(doc.file_name)[0]
         user_state[uid] = 1
         update.message.reply_text("是否插入雷号？是 / 否")
+
     except Exception as e:
         update.message.reply_text(f"❌ 文件处理失败：{str(e)}")
 
@@ -344,7 +377,6 @@ def send_10_in_one_group(chat_id, context, parts, base_name):
             context.bot.send_media_group(chat_id=chat_id, media=media_group)
             print(f"✅ 成功发送批次 {batch_start//10 + 1}，共 {len(media_group)} 个文件")
         except RetryAfter as e:
-            # 捕获限流，等待并重试
             wait_time = e.retry_after + 1
             print(f"⚠️ 触发限流，等待 {wait_time} 秒后重试批次 {batch_start//10 + 1}")
             time.sleep(wait_time)
@@ -359,7 +391,6 @@ def send_10_in_one_group(chat_id, context, parts, base_name):
             for f in temp_files:
                 if os.path.exists(f):
                     os.remove(f)
-        # 批次间增加 3 秒间隔，避免连续触发限流
         time.sleep(3)
 
 # ===================== 核心处理 =====================
@@ -414,7 +445,7 @@ def main():
     dp.add_handler(MessageHandler(Filters.document, receive_file))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
     updater.start_polling(drop_pending_updates=True, timeout=30, read_latency=2)
-    print("✅ 机器人启动成功（一次10个文件 + 智能限流版）")
+    print("✅ 机器人启动成功（支持 ZIP 多TXT合并）")
     updater.idle()
 
 if __name__ == "__main__":
