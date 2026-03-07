@@ -11,35 +11,23 @@ from telegram import InputMediaDocument, InlineKeyboardButton, InlineKeyboardMar
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
 from telegram.error import RetryAfter
 
-# ===================== 环境与 Web 适配 =====================
+# ===================== 环境配置 =====================
 app_web = Flask(__name__)
 
 @app_web.route('/')
-def index():
-    return "Bot is running"
+def index(): return "大晴分包系统运行中..."
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host='0.0.0.0', port=port, threaded=True)
 
-# 修复 imghdr 兼容问题（针对特定打包环境）
-class imghdr:
-    @staticmethod
-    def what(h=None, file=None):
-        if h is None: return None
-        h = h[:32]
-        if h.startswith(b'\xff\xd8\xff'): return 'jpeg'
-        if h.startswith(b'\x89PNG\r\n\x1a\n'): return 'png'
-        return None
-
 # ===================== 配置信息 =====================
 TOKEN = "8511432045:AAEFFnxjFo2yYhHAFMAIxt1-1we5hvGnpGY"
 ROOT_ADMIN = 7793291484
-
-# ===================== 数据持久化 =====================
 DATA_FILE = "user_data.json"
 CARD_FILE = "cards.json"
 
+# ===================== 数据管理层 =====================
 def load_data(f):
     if not os.path.exists(f): return {}
     try:
@@ -53,259 +41,274 @@ user_data = load_data(DATA_FILE)
 card_data = load_data(CARD_FILE)
 admins = {ROOT_ADMIN}
 
-# ===================== 状态字典 =====================
-user_split_settings = {}
-user_state = {}      # 状态机：1-加雷选择, 2-输入雷号, 3-改名选择, 4-输入新名
-user_file_data = {}  # 暂存处理后的行数据
-user_thunder = {}    # 暂存雷号列表
-user_filename = {}   # 暂存文件名
-user_final_name = {} # 暂存最终用户确定的名字
+# 全局内存挂载
+user_state = {}          # 状态机：S_REDEEM, S_SPLIT, S_THUNDER, S_RENAME, S_GEN_CARD, S_ADD_ADMIN
+user_split_settings = {} # 分包行数
+user_file_cache = {}     # 待分割数据内容
+user_thunder_cache = {}  # 雷号池
+user_name_cache = {}     # 原始/自定义文件名
 
-# ===================== 核心工具函数 =====================
-def is_user_valid(user_id):
-    uid = str(user_id)
-    return uid in user_data and time.time() < user_data[uid].get("expire", 0)
+# ===================== 权限校验 =====================
+def is_admin(uid): return uid in admins
 
-def is_admin(user_id):
-    return user_id in admins
+def is_valid_user(uid):
+    if is_admin(uid): return True
+    u_str = str(uid)
+    return u_str in user_data and time.time() < user_data[u_str].get("expire", 0)
 
-def get_menu_markup(uid):
-    """根据权限控制主菜单按钮"""
-    keyboard = [
-        [InlineKeyboardButton("🔍 查询余额", callback_data="check_me"),
-         InlineKeyboardButton("🎫 兑换卡密", callback_data="redeem_start")],
-        [InlineKeyboardButton("⚙️ 分包设置", callback_data="set_split_start")]
-    ]
+def get_main_menu(uid):
+    kb = [[InlineKeyboardButton("🔍 查询余额", callback_data="btn_me"),
+           InlineKeyboardButton("🎫 兑换卡密", callback_data="btn_redeem")],
+          [InlineKeyboardButton("⚙️ 设置分包行数", callback_data="btn_set_split")]]
     if is_admin(uid):
-        keyboard.append([InlineKeyboardButton("👑 管理员后台", callback_data="admin_panel")])
-    return InlineKeyboardMarkup(keyboard)
+        kb.append([InlineKeyboardButton("👑 管理面板", callback_data="btn_admin")])
+    return InlineKeyboardMarkup(kb)
 
-def sad_text():
-    return random.choice([
-        "缘分总比刻意好", "有些关系，断了是解脱，也是遗憾。", "后来我什么都想开了，但什么都错过了。",
-        "热情耗尽了就只剩疲惫。", "失望到了极致，反倒说不出话了。"
-    ])
+def get_admin_menu():
+    kb = [[InlineKeyboardButton("🎟️ 生成卡密", callback_data="adm_gen_card"),
+           InlineKeyboardButton("👥 查看用户", callback_data="adm_list_user")],
+          [InlineKeyboardButton("➕ 添加管理员", callback_data="adm_add_admin"),
+           InlineKeyboardButton("🔙 返回首页", callback_data="btn_home")]]
+    return InlineKeyboardMarkup(kb)
 
 # ===================== 指令处理器 =====================
 def start(update: Update, context: CallbackContext):
     uid = update.effective_user.id
-    # 重置状态
-    for k in [user_state, user_file_data, user_thunder, user_filename]: k.pop(uid, None)
-    
-    welcome_msg = "✅【大晴文件助手】\n请选择下方功能或直接发送 TXT/ZIP 文件开始处理"
-    update.message.reply_text(welcome_msg, reply_markup=get_menu_markup(uid))
+    # 初始化
+    for cache in [user_state, user_file_cache, user_thunder_cache, user_name_cache]:
+        cache.pop(uid, None)
+    update.message.reply_text("👋 欢迎使用大晴分包助手！\n请先设置分包行数，或直接发送文件开始处理。", 
+                             reply_markup=get_main_menu(uid))
 
+def all_users(update: Update, context: CallbackContext):
+    """查看所有用户指令"""
+    if not is_admin(update.effective_user.id): return
+    if not user_data: return update.message.reply_text("暂无有效用户")
+    msg = "👤 用户列表：\n"
+    for uid, data in user_data.items():
+        left = int(data['expire'] - time.time())
+        msg += f"• `{uid}`: {'已过期' if left < 0 else f'{left//86400}天'}\n"
+    update.message.reply_text(msg, parse_mode="Markdown")
+
+# ===================== 回调逻辑 (按钮点击) =====================
 def handle_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     uid = query.from_user.id
+    data = query.data
     query.answer()
 
-    if query.data == "check_me":
-        uid_str = str(uid)
-        if uid_str not in user_data:
-            msg = "❌ 您还没有会员记录"
-        else:
-            left = int(user_data[uid_str]["expire"] - time.time())
-            msg = f"✅ 剩余时间：{max(0, left//86400)}天{max(0, (left%86400)//3600)}小时"
-        query.edit_message_text(msg, reply_markup=get_menu_markup(uid))
+    if data == "btn_home":
+        query.edit_message_text("✅ 已回到主菜单：", reply_markup=get_main_menu(uid))
 
-    elif query.data == "redeem_start":
-        query.edit_message_text("📝 请直接在聊天框发送您的卡密：")
-        user_state[uid] = "WAITING_REDEEM"
+    elif data == "btn_me":
+        exp = user_data.get(str(uid), {}).get("expire", 0)
+        left = int(exp - time.time())
+        msg = f"✅ 有效期剩余：{max(0, left//86400)}天" if left > 0 else "❌ 未激活或已过期"
+        query.edit_message_text(msg, reply_markup=get_main_menu(uid))
 
-    elif query.data == "set_split_start":
-        query.edit_message_text("⚙️ 请直接发送数字（如 50），设置每个文件的行数：")
-        user_state[uid] = "WAITING_SPLIT"
+    elif data == "btn_redeem":
+        user_state[uid] = "S_REDEEM"
+        query.edit_message_text("📝 请输入卡密进行兑换：")
 
-    elif query.data == "admin_panel":
-        if not is_admin(uid): return
-        kb = [
-            [InlineKeyboardButton("🎟️ 生成卡密", callback_data="gen_card_start")],
-            [InlineKeyboardButton("👥 查看用户", callback_data="view_users")],
-            [InlineKeyboardButton("🔙 返回菜单", callback_data="back_main")]
-        ]
-        query.edit_message_text("👑 管理员控制面板", reply_markup=InlineKeyboardMarkup(kb))
+    elif data == "btn_set_split":
+        user_state[uid] = "S_SPLIT"
+        query.edit_message_text("⚙️ 请输入单包行数：\n(如需100行分包且插雷，建议写99)")
 
-    elif query.data == "gen_card_start":
-        query.edit_message_text("输入要生成的卡密天数（正整数）：")
-        user_state[uid] = "WAITING_GEN_CARD"
+    # 管理员功能
+    elif data == "btn_admin":
+        if is_admin(uid): query.edit_message_text("👑 管理员后台控制中心", reply_markup=get_admin_menu())
 
-    elif query.data == "back_main":
-        query.edit_message_text("✅【大晴文件助手】", reply_markup=get_menu_markup(uid))
+    elif data == "adm_gen_card":
+        user_state[uid] = "S_GEN_CARD"
+        query.edit_message_text("请输入要生成的卡密天数 (正整数)：")
 
-    # --- 文件处理流程按钮 ---
-    elif query.data == "thunder_yes":
-        user_state[uid] = 2
-        user_thunder[uid] = []
-        query.edit_message_text("🧨 请发送雷号（一行一个），完成后发送：`完成`")
+    elif data == "adm_list_user":
+        all_users(update, context)
 
-    elif query.data == "thunder_no":
-        user_thunder[uid] = []
-        ask_rename(uid, query)
+    elif data == "adm_add_admin":
+        user_state[uid] = "S_ADD_ADMIN"
+        query.edit_message_text("请输入要授权为管理员的用户ID：")
 
-    elif query.data == "rename_yes":
-        user_state[uid] = 4
-        query.edit_message_text("✍️ 请输入您想要的文件名（所有分包将使用此名字）：")
+    # 文件流程控制器
+    elif data == "th_yes":
+        user_state[uid] = "S_THUNDER"
+        user_thunder_cache[uid] = []
+        query.edit_message_text("🧨 请发送雷号 (一行一个)。发送完毕后请输入“**完成**”结束：", parse_mode="Markdown")
 
-    elif query.data == "rename_no":
-        user_final_name[uid] = None # 标记不使用自定义名
-        do_process(uid, update, context)
+    elif data == "th_no":
+        user_thunder_cache[uid] = []
+        show_rename_query(query)
 
-def ask_rename(uid, query):
-    """跳转到询问重命名步骤"""
-    kb = [
-        [InlineKeyboardButton("✅ 我要改名", callback_data="rename_yes"),
-         InlineKeyboardButton("❌ 不改名(带序号)", callback_data="rename_no")]
-    ]
+    elif data == "rn_yes":
+        user_state[uid] = "S_RENAME"
+        query.edit_message_text("✍️ 请输入您想要修改的文件名：\n(分包后会自动补全为: 文件名_1.txt)")
+
+    elif data == "rn_no":
+        do_final_process(uid, query.message, context)
+
+def show_rename_query(query):
+    kb = [[InlineKeyboardButton("✅ 自定义文件名", callback_data="rn_yes"),
+           InlineKeyboardButton("❌ 使用默认名", callback_data="rn_no")]]
     query.edit_message_text("📝 是否需要修改导出的文件名？", reply_markup=InlineKeyboardMarkup(kb))
 
-# ===================== 文件与文本处理 =====================
+# ===================== 文件接收 =====================
 def receive_file(update: Update, context: CallbackContext):
     uid = update.effective_user.id
-    if not (is_admin(uid) or is_user_valid(uid)):
-        update.message.reply_text("❌ 您没有使用权限，请联系管理员或输入 /redeem 兑换")
-        return
+    if not is_valid_user(uid):
+        return update.message.reply_text("❌ 暂无使用权限，请联系管理员或兑换卡密。")
 
     doc = update.message.document
     fname = doc.file_name.lower()
     if not (fname.endswith('.txt') or fname.endswith('.zip')):
-        update.message.reply_text("⚠️ 仅支持 TXT 或 ZIP 文件")
-        return
+        return update.message.reply_text("⚠️ 仅支持 TXT 或 ZIP 格式。")
 
-    file = context.bot.get_file(doc.file_id)
-    path = f"tmp_{uid}"
-    file.download(path)
+    f_obj = context.bot.get_file(doc.file_id)
+    tmp_path = f"file_{uid}_{int(time.time())}"
+    f_obj.download(tmp_path)
     
     lines = []
-    if fname.endswith('.txt'):
-        with open(path, "r", encoding="utf-8", errors='ignore') as f:
-            lines = [l.strip() for l in f if l.strip()]
-    else:
-        with zipfile.ZipFile(path, 'r') as zf:
-            for n in [f for f in zf.namelist() if f.lower().endswith('.txt')]:
-                with zf.open(n) as f:
-                    content = f.read().decode('utf-8', errors='ignore')
-                    lines.extend([l.strip() for l in content.splitlines() if l.strip()])
-    
-    if os.path.exists(path): os.remove(path)
-    
-    if not lines:
-        update.message.reply_text("❌ 文件内没有有效内容")
-        return
+    try:
+        if fname.endswith('.txt'):
+            with open(tmp_path, "r", encoding="utf-8", errors='ignore') as f:
+                lines = [l.strip() for l in f if l.strip()]
+        else:
+            with zipfile.ZipFile(tmp_path, 'r') as zf:
+                for n in [f for f in zf.namelist() if f.lower().endswith('.txt')]:
+                    with zf.open(n) as f:
+                        lines.extend([l.strip() for l in f.read().decode('utf-8', errors='ignore').splitlines() if l.strip()])
+    except Exception as e:
+        return update.message.reply_text(f"❌ 读取错误: {e}")
+    finally:
+        if os.path.exists(tmp_path): os.remove(tmp_path)
 
-    user_file_data[uid] = lines
-    user_filename[uid] = os.path.splitext(doc.file_name)[0]
-    
-    kb = [
-        [InlineKeyboardButton("💣 插入雷号", callback_data="thunder_yes"),
-         InlineKeyboardButton("⏭️ 直接跳过", callback_data="thunder_no")]
-    ]
-    update.message.reply_text("🔎 文件加载成功，是否需要插入雷号？", reply_markup=InlineKeyboardMarkup(kb))
+    if not lines: return update.message.reply_text("❌ 文件是空的")
 
-def handle_all_text(update: Update, context: CallbackContext):
+    user_file_cache[uid] = lines
+    user_name_cache[uid] = os.path.splitext(doc.file_name)[0]
+    
+    kb = [[InlineKeyboardButton("💣 随机插雷", callback_data="th_yes"),
+           InlineKeyboardButton("⏭️ 跳过不用", callback_data="th_no")]]
+    update.message.reply_text(f"📦 解析成功：共 {len(lines)} 行\n请选择是否执行随机插雷流程：", reply_markup=InlineKeyboardMarkup(kb))
+
+# ===================== 状态文本流处理 (核心交互层) =====================
+def handle_text(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     txt = update.message.text.strip()
     state = user_state.get(uid)
+    if not state: return
 
-    if state == "WAITING_REDEEM":
-        # 复用原兑换逻辑
+    # --- 管理员指令处理 ---
+    if state == "S_GEN_CARD" and is_admin(uid):
+        if txt.isdigit():
+            days = int(txt)
+            card = "".join(random.choices("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", k=10))
+            card_data[card] = {"days": days, "used": False, "user": None}
+            save_data(CARD_FILE, card_data)
+            update.message.reply_text(f"✅ 生成成功！\n卡密：`{card}`\n天数：{days}", parse_mode="Markdown", reply_markup=get_admin_menu())
+            user_state.pop(uid)
+        else:
+            update.message.reply_text("请输入数字天数")
+
+    elif state == "S_ADD_ADMIN" and is_admin(uid):
+        if txt.isdigit():
+            admins.add(int(txt))
+            update.message.reply_text(f"✅ 已添加管理员: `{txt}`", parse_mode="Markdown", reply_markup=get_admin_menu())
+            user_state.pop(uid)
+
+    # --- 用户流程处理 ---
+    elif state == "S_REDEEM":
         card = txt.upper()
         if card in card_data and not card_data[card]["used"]:
             days = card_data[card]["days"]
-            new_exp = max(time.time(), user_data.get(str(uid), {}).get("expire", 0)) + days * 86400
-            user_data[str(uid)] = {"expire": new_exp}
+            exp = max(time.time(), user_data.get(str(uid), {}).get("expire", 0)) + days * 86400
+            user_data[str(uid)] = {"expire": exp}
             card_data[card].update({"used": True, "user": str(uid)})
             save_data(DATA_FILE, user_data); save_data(CARD_FILE, card_data)
-            msg = f"✅ 兑换成功，增加 {days} 天！"
-        else:
-            msg = "❌ 卡密无效或已使用"
-        update.message.reply_text(msg, reply_markup=get_menu_markup(uid))
-        user_state.pop(uid)
-
-    elif state == "WAITING_SPLIT":
-        if txt.isdigit() and int(txt) > 0:
-            user_split_settings[uid] = int(txt)
-            update.message.reply_text(f"✅ 单包大小已设为: {txt}行", reply_markup=get_menu_markup(uid))
+            update.message.reply_text(f"✅ 兑换成功，增加 {days} 天！", reply_markup=get_main_menu(uid))
             user_state.pop(uid)
         else:
-            update.message.reply_text("⚠️ 请发送一个正整数数字")
+            update.message.reply_text("❌ 无效卡密")
 
-    elif state == 2: # 正在输入雷号
+    elif state == "S_SPLIT":
+        if txt.isdigit():
+            user_split_settings[uid] = int(txt)
+            update.message.reply_text(f"✅ 单包预设行数: {txt}", reply_markup=get_main_menu(uid))
+            user_state.pop(uid)
+
+    elif state == "S_THUNDER":
         if txt == "完成":
-            if not user_thunder.get(uid):
-                update.message.reply_text("⚠️ 您还未发送雷号，请直接发送或点按钮跳过")
-            else:
-                # 进入改名询问阶段
-                kb = [[InlineKeyboardButton("✅ 我要改名", callback_data="rename_yes"),
-                       InlineKeyboardButton("❌ 不改名(带序号)", callback_data="rename_no")]]
-                update.message.reply_text("📝 雷号录入完毕，是否重命名导出文件？", reply_markup=InlineKeyboardMarkup(kb))
+            show_rename_query(update)
         else:
-            new_thunders = [l.strip() for l in txt.splitlines() if l.strip()]
-            user_thunder.setdefault(uid, []).extend(new_thunders)
-            update.message.reply_text(f"已收录 {len(user_thunder[uid])} 个雷号，继续发送或发送“完成”")
+            th_list = [l.strip() for l in txt.splitlines() if l.strip()]
+            user_thunder_cache.setdefault(uid, []).extend(th_list)
+            update.message.reply_text(f"✅ 已录入 {len(user_thunder_cache[uid])} 个雷号，可继续发送或回复“完成”")
 
-    elif state == 4: # 输入新文件名
-        user_final_name[uid] = txt
-        do_process(uid, update, context)
+    elif state == "S_RENAME":
+        user_name_cache[uid] = txt
+        do_final_process(uid, update.message, context)
 
-# ===================== 核心处理与发送 =====================
-def do_process(uid, update, context):
-    lines = user_file_data.pop(uid, [])
+# ===================== 核心算法：插雷 + 改名 + 发送 =====================
+def do_final_process(uid, msg_obj, context):
+    lines = user_file_cache.pop(uid, [])
+    if not lines: return msg_obj.reply_text("❌ 数据丢失，请重发")
+
     per = user_split_settings.get(uid, 50)
-    thunders = user_thunder.pop(uid, [])
-    custom_name = user_final_name.pop(uid, None)
-    base_name = custom_name if custom_name else user_filename.pop(uid, "output")
+    thunders = user_thunder_cache.pop(uid, [])
+    base_name = user_name_cache.pop(uid, "分包文件")
     
-    parts = [lines[i:i+per] for i in range(0, len(lines), per)]
-    
-    # 插入雷号逻辑
-    if thunders:
-        new_parts = []
-        for i, p in enumerate(parts):
-            new_parts.append(p + [thunders[i % len(thunders)]])
-        parts = new_parts
+    # 分割
+    chunks = [lines[i:i+per] for i in range(0, len(lines), per)]
+    total = len(chunks)
+    msg_obj.reply_text(f"🚀 开始处理，共 {total} 个包...")
 
-    update.message.reply_text(f"🚀 开始处理，总计 {len(parts)} 个分包...")
-    
-    # 分批发送 (10个一组)
-    for batch_start in range(0, len(parts), 10):
+    for i in range(0, total, 10):
         media_group = []
-        batch_files = []
-        for i, part in enumerate(parts[batch_start:batch_start+10]):
-            idx = batch_start + i + 1
-            # 根据用户需求决定是否加序号
-            fname = f"{base_name}.txt" if custom_name else f"{base_name}_{idx}.txt"
-            with open(fname, "w", encoding="utf-8") as f: f.write("\n".join(part))
-            batch_files.append(fname)
-            media_group.append(InputMediaDocument(open(fname, "rb"), filename=fname))
-        
+        temp_files = []
+        for j, chunk in enumerate(chunks[i:i+10]):
+            curr_idx = i + j + 1
+            
+            # --- 随机插入雷号 ---
+            if thunders:
+                cur_thunder = thunders[j % len(thunders)]
+                ins_pos = random.randint(0, len(chunk))
+                chunk.insert(ins_pos, cur_thunder)
+
+            # --- 命名控制: 自定义/原名 + 序号 ---
+            f_name = f"{base_name}_{curr_idx}.txt"
+            
+            with open(f_name, "w", encoding="utf-8") as f:
+                f.write("\n".join(chunk))
+            
+            temp_files.append(f_name)
+            media_group.append(InputMediaDocument(open(f_name, "rb"), filename=f_name))
+
         try:
-            context.bot.send_media_group(chat_id=update.effective_chat.id, media=media_group)
+            context.bot.send_media_group(chat_id=msg_obj.chat_id, media=media_group)
         except RetryAfter as e:
             time.sleep(e.retry_after + 1)
-            context.bot.send_media_group(chat_id=update.effective_chat.id, media=media_group)
-        except Exception: pass
+            context.bot.send_media_group(chat_id=msg_obj.chat_id, media=media_group)
+        except: pass
         
-        for bf in batch_files: 
-            if os.path.exists(bf): os.remove(bf)
+        for tf in temp_files:
+            if os.path.exists(tf): os.remove(tf)
         time.sleep(1.5)
 
-    update.message.reply_text(f"✅ 处理完成！\n{sad_text()}", reply_markup=get_menu_markup(uid))
+    msg_obj.reply_text(f"🏁 任务完成，累计分包 {total} 个。\n\n『缘分总比刻意好。』", reply_markup=get_main_menu(uid))
     user_state.pop(uid, None)
 
-# ===================== 主程序 =====================
+# ===================== 入口 =====================
 def main():
     threading.Thread(target=run_web_server, daemon=True).start()
-    
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
     
     dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("all", all_users))
     dp.add_handler(CallbackQueryHandler(handle_callback))
     dp.add_handler(MessageHandler(Filters.document, receive_file))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_all_text))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
     
-    print("✅ 机器人已启动，按钮交互模式就绪")
+    print("✅ 大晴机器就绪 | 卡密系统 | 随机插雷 | 智能命名")
     updater.start_polling(drop_pending_updates=True)
     updater.idle()
 
